@@ -22,6 +22,7 @@ function mainKeyboard() {
       [{ text: "Места и бизнес", callback_data: "business" }],
       [{ text: "Добавить свой бизнес", callback_data: "business_register" }],
       [{ text: "Мой бизнес", callback_data: "my_business" }],
+      [{ text: "Общение жителей", callback_data: "community" }],
       [{ text: "Помощь рядом", callback_data: "help_list" }],
       [{ text: "Поделиться ботом", callback_data: "share" }],
       [{ text: "Мои обращения", callback_data: "my_help" }],
@@ -61,7 +62,8 @@ async function ensureCommands(token: string) {
     { command: "share", description: "Поделиться ботом" },
     { command: "requests", description: "Мои обращения" },
     { command: "my", description: "Мой профиль" },
-    { command: "business", description: "Мой бизнес" }
+    { command: "business", description: "Мой бизнес" },
+    { command: "community", description: "Общение жителей" }
   ];
   await fetch(`https://api.telegram.org/bot${token}/setMyCommands`, {
     method: "POST",
@@ -79,6 +81,150 @@ async function ensureCommands(token: string) {
       }
     })
   });
+}
+
+
+async function sendToProfile(token: string, profileId: string, messageText: string, replyMarkup?: unknown) {
+  const { data: link } = await supabase
+    .from("identity_links")
+    .select("external_user_id")
+    .eq("tenant_id", TENANT_ID)
+    .eq("profile_id", profileId)
+    .eq("channel", "telegram")
+    .maybeSingle();
+  if (!link?.external_user_id) return;
+  await sendMessage(token, link.external_user_id, messageText, replyMarkup);
+}
+
+async function showCommunity(token: string, chatId: number | string) {
+  const { data: posts, error } = await supabase
+    .from("community_posts")
+    .select("id,title")
+    .eq("tenant_id", TENANT_ID)
+    .eq("status", "published")
+    .order("published_at", { ascending: false })
+    .limit(8);
+  if (error) throw error;
+
+  if (!posts?.length) {
+    await sendMessage(token, chatId, "Общение жителей\n\nПока опубликованных обсуждений нет. Можно создать первое.", {
+      inline_keyboard: [
+        [{ text: "Создать обсуждение", callback_data: "community_new" }],
+        [{ text: "Назад", callback_data: "home" }]
+      ]
+    });
+    return;
+  }
+
+  const rows = posts.map((p: any) => [{ text: String(p.title).slice(0, 48), callback_data: "cpost:" + p.id }]);
+  rows.push([{ text: "Создать обсуждение", callback_data: "community_new" }]);
+  rows.push([{ text: "Мои обсуждения", callback_data: "community_my" }]);
+  rows.push([{ text: "Назад", callback_data: "home" }]);
+  await sendMessage(token, chatId, "Общение жителей\n\nВыберите обсуждение:", { inline_keyboard: rows });
+}
+
+
+async function showMyCommunity(token: string, chatId: number | string, profileId: string) {
+  const { data, error } = await supabase
+    .from("community_posts")
+    .select("id,title,status,moderation_note,created_at")
+    .eq("tenant_id", TENANT_ID)
+    .eq("author_profile_id", profileId)
+    .order("created_at", { ascending: false })
+    .limit(20);
+  if (error) throw error;
+  if (!data?.length) {
+    await sendMessage(token, chatId, "У вас пока нет обсуждений.", { inline_keyboard: [[{ text: "Создать обсуждение", callback_data: "community_new" }],[{ text: "Назад", callback_data: "community" }]] });
+    return;
+  }
+  const labels: Record<string,string> = { pending:"На проверке", published:"Опубликовано", rejected:"Отклонено", archived:"Архив" };
+  const body = data.map((x:any)=>"• "+x.title+" — "+(labels[x.status]||x.status)+(x.moderation_note?"\nКомментарий: "+x.moderation_note:"")).join("\n\n");
+  await sendMessage(token, chatId, "Мои обсуждения\n\n"+body, { inline_keyboard: [[{ text: "Создать обсуждение", callback_data: "community_new" }],[{ text: "Назад", callback_data: "community" }]] });
+}
+
+async function showCommunityPost(token: string, chatId: number | string, postId: string) {
+  const { data: post, error } = await supabase
+    .from("community_posts")
+    .select("id,title,category,body,location_text,author_profile_id")
+    .eq("tenant_id", TENANT_ID)
+    .eq("id", postId)
+    .eq("status", "published")
+    .maybeSingle();
+  if (error) throw error;
+  if (!post) {
+    await sendMessage(token, chatId, "Обсуждение не найдено.");
+    return;
+  }
+
+  const { data: comments } = await supabase
+    .from("community_comments")
+    .select("id,body,created_at,parent_comment_id")
+    .eq("tenant_id", TENANT_ID)
+    .eq("entity_type", "community_post")
+    .eq("entity_id", postId)
+    .eq("status", "published")
+    .order("created_at", { ascending: true })
+    .limit(8);
+
+  const { data: reactions } = await supabase
+    .from("community_reactions")
+    .select("reaction")
+    .eq("tenant_id", TENANT_ID)
+    .eq("entity_type", "community_post")
+    .eq("entity_id", postId);
+
+  const counts: Record<string, number> = {};
+  for (const r of reactions || []) counts[r.reaction] = (counts[r.reaction] || 0) + 1;
+
+  const commentText = (comments || []).map((x: any, i: number) => String(i + 1) + ". " + x.body).join("\n");
+  const replyRows = (comments || []).slice(-5).map((x:any,i:number)=>[{ text: "↩️ Ответить на " + String(Math.max(1,(comments||[]).length-4+i)), callback_data: "creply:" + x.id }]);
+  const parts = [
+    post.title,
+    "",
+    post.body,
+    post.location_text ? "Место: " + post.location_text : null,
+    "",
+    "👍 " + (counts["like"] || 0) + "   ❤️ " + (counts["heart"] || 0),
+    comments?.length ? "\nКомментарии:\n" + commentText : "\nКомментариев пока нет."
+  ].filter(Boolean);
+
+  await sendMessage(token, chatId, parts.join("\n"), {
+    inline_keyboard: [
+      [{ text: "Комментировать", callback_data: "ccomment:" + postId }],
+      [{ text: "👍", callback_data: "creact:like:" + postId }, { text: "❤️", callback_data: "creact:heart:" + postId }],
+      [{ text: "Написать автору", callback_data: "cdm:" + postId }],
+      [{ text: "Пожаловаться", callback_data: "creport:" + postId }],
+      ...replyRows,
+      [{ text: "К обсуждениям", callback_data: "community" }]
+    ]
+  });
+}
+
+async function createOrGetThread(profileId: string, targetProfileId: string, postId: string) {
+  const { data: rows, error } = await supabase
+    .from("community_threads")
+    .select("id,member_a_profile_id,member_b_profile_id")
+    .eq("tenant_id", TENANT_ID)
+    .eq("source_entity_type", "community_post")
+    .eq("source_entity_id", postId)
+    .limit(20);
+  if (error) throw error;
+
+  const existing = (rows || []).find((x: any) =>
+    (x.member_a_profile_id === profileId && x.member_b_profile_id === targetProfileId) ||
+    (x.member_a_profile_id === targetProfileId && x.member_b_profile_id === profileId)
+  );
+  if (existing?.id) return existing.id as string;
+
+  const { data, error: insertError } = await supabase.from("community_threads").insert({
+    tenant_id: TENANT_ID,
+    member_a_profile_id: profileId,
+    member_b_profile_id: targetProfileId,
+    source_entity_type: "community_post",
+    source_entity_id: postId
+  }).select("id").single();
+  if (insertError) throw insertError;
+  return data.id as string;
 }
 
 async function answerCallback(token: string, id: string) {
@@ -460,6 +606,9 @@ Deno.serve(async (req) => {
       "Конаково Рядом\n\nГородской помощник: события, помощь, места, объявления и полезная информация рядом.",
       mainKeyboard()
     );
+  } else if (text?.startsWith("/start cpost_")) {
+    await clearState(profileId);
+    await showCommunityPost(token, chatId, text.replace("/start cpost_", "").trim());
   } else if (action === "feed" || text === "/nearby") {
     await clearState(profileId);
     await showFeed(token, chatId);
@@ -472,6 +621,72 @@ Deno.serve(async (req) => {
   } else if (action === "business_register") {
     await setState(profileId, "business_name", {});
     await sendMessage(token, chatId, "Регистрация бизнеса\n\nВведите название организации.", { inline_keyboard: [[{ text: "Отмена", callback_data: "home" }]] });
+  } else if (action === "community" || text === "/community") {
+    await clearState(profileId);
+    await showCommunity(token, chatId);
+  } else if (action === "community_my") {
+    await clearState(profileId);
+    await showMyCommunity(token, chatId, profileId);
+  } else if (action === "community_new") {
+    await setState(profileId, "community_category", {});
+    await sendMessage(token, chatId, "Новое обсуждение\n\nНапишите категорию: например, транспорт, ЖКХ, родители, животные, рекомендации или другое.", { inline_keyboard: [[{ text: "Отмена", callback_data: "community" }]] });
+  } else if (action?.startsWith("cpost:")) {
+    await clearState(profileId);
+    await showCommunityPost(token, chatId, action.slice(6));
+  } else if (action?.startsWith("ccomment:")) {
+    const postId = action.slice(9);
+    await setState(profileId, "community_comment", { post_id: postId });
+    await sendMessage(token, chatId, "Напишите комментарий одним сообщением.", { inline_keyboard: [[{ text: "Отмена", callback_data: "cpost:" + postId }]] });
+  } else if (action?.startsWith("creact:")) {
+    const parts = action.split(":");
+    const reaction = parts[1];
+    const postId = parts[2];
+    if (["like","heart"].includes(reaction)) {
+      const { data: existing } = await supabase.from("community_reactions").select("id")
+        .eq("tenant_id", TENANT_ID).eq("profile_id", profileId).eq("entity_type", "community_post").eq("entity_id", postId).eq("reaction", reaction).maybeSingle();
+      if (existing?.id) {
+        await supabase.from("community_reactions").delete().eq("tenant_id", TENANT_ID).eq("id", existing.id);
+      } else {
+        await supabase.from("community_reactions").insert({ tenant_id: TENANT_ID, profile_id: profileId, entity_type: "community_post", entity_id: postId, reaction });
+      }
+      await showCommunityPost(token, chatId, postId);
+    }
+  } else if (action?.startsWith("creply:")) {
+    const commentId = action.slice(7);
+    const { data: comment } = await supabase.from("community_comments")
+      .select("id,entity_id,author_profile_id")
+      .eq("tenant_id", TENANT_ID)
+      .eq("id", commentId)
+      .eq("status", "published")
+      .maybeSingle();
+    if (!comment) {
+      await sendMessage(token, chatId, "Комментарий не найден.");
+    } else {
+      await setState(profileId, "community_comment", { post_id: comment.entity_id, parent_comment_id: comment.id, parent_author_profile_id: comment.author_profile_id });
+      await sendMessage(token, chatId, "Напишите ответ на комментарий одним сообщением.", { inline_keyboard: [[{ text: "Отмена", callback_data: "cpost:" + comment.entity_id }]] });
+    }
+  } else if (action?.startsWith("creport:")) {
+    const postId = action.slice(8);
+    await setState(profileId, "community_report", { post_id: postId });
+    await sendMessage(token, chatId, "Опишите причину жалобы одним сообщением.", { inline_keyboard: [[{ text: "Отмена", callback_data: "cpost:" + postId }]] });
+  } else if (action?.startsWith("cdm:")) {
+    const postId = action.slice(4);
+    const { data: post } = await supabase.from("community_posts").select("author_profile_id,title")
+      .eq("tenant_id", TENANT_ID).eq("id", postId).eq("status", "published").maybeSingle();
+    if (!post?.author_profile_id || post.author_profile_id === profileId) {
+      await sendMessage(token, chatId, "Нельзя написать самому себе.");
+    } else {
+      await setState(profileId, "community_dm", { post_id: postId, target_profile_id: post.author_profile_id, title: post.title });
+      await sendMessage(token, chatId, "Напишите сообщение автору. Ваш телефон и Telegram-контакт не будут раскрыты.", { inline_keyboard: [[{ text: "Отмена", callback_data: "cpost:" + postId }]] });
+    }
+  } else if (action?.startsWith("dmreply:")) {
+    const threadId = action.slice(8);
+    const { data: th } = await supabase.from("community_threads").select("member_a_profile_id,member_b_profile_id,status")
+      .eq("tenant_id", TENANT_ID).eq("id", threadId).maybeSingle();
+    if (th && th.status === "active" && [th.member_a_profile_id, th.member_b_profile_id].includes(profileId)) {
+      await setState(profileId, "community_dm_reply", { thread_id: threadId });
+      await sendMessage(token, chatId, "Напишите ответ одним сообщением.", { inline_keyboard: [[{ text: "Отмена", callback_data: "home" }]] });
+    }
   } else if (action === "help_list") {
     await clearState(profileId);
     await showApprovedHelp(token, chatId);
@@ -504,7 +719,158 @@ Deno.serve(async (req) => {
       .eq("profile_id", profileId)
       .maybeSingle();
 
-    if (state?.state === "business_name") {
+    if (state?.state === "community_category") {
+      await setState(profileId, "community_title", { category: text.slice(0,80) });
+      await sendMessage(token, chatId, "Введите короткий заголовок обсуждения.", { inline_keyboard: [[{ text: "Отмена", callback_data: "community" }]] });
+    } else if (state?.state === "community_title") {
+      await setState(profileId, "community_body", { ...state.data, title: text.slice(0,200) });
+      await sendMessage(token, chatId, "Напишите текст сообщения.", { inline_keyboard: [[{ text: "Отмена", callback_data: "community" }]] });
+    } else if (state?.state === "community_body") {
+      await setState(profileId, "community_location", { ...state.data, body: text.slice(0,5000) });
+      await sendMessage(token, chatId, "Укажите место/район или напишите «нет».", { inline_keyboard: [[{ text: "Отмена", callback_data: "community" }]] });
+    } else if (state?.state === "community_location") {
+      const d = state.data || {};
+      const { data: row, error } = await supabase.from("community_posts").insert({
+        tenant_id: TENANT_ID,
+        author_profile_id: profileId,
+        category: d.category || "general",
+        title: d.title,
+        body: d.body,
+        location_text: text.toLowerCase() === "нет" ? null : text.slice(0,300),
+        status: "pending"
+      }).select("id").single();
+      if (error) throw error;
+
+      await supabase.from("audit_log").insert({
+        tenant_id: TENANT_ID,
+        actor: "telegram",
+        action: "community_post_submitted",
+        entity_type: "community_post",
+        entity_id: row.id,
+        metadata: { author_profile_id: profileId }
+      });
+
+      await clearState(profileId);
+      await sendMessage(token, chatId, "Обсуждение отправлено на модерацию. После одобрения оно появится у жителей.", mainKeyboard());
+    } else if (state?.state === "community_comment") {
+      const postId = state.data?.post_id;
+      const { data: post } = await supabase.from("community_posts").select("author_profile_id,title")
+        .eq("tenant_id", TENANT_ID).eq("id", postId).eq("status", "published").maybeSingle();
+      if (!post) throw new Error("post_not_found");
+
+      const { error } = await supabase.from("community_comments").insert({
+        tenant_id: TENANT_ID,
+        author_profile_id: profileId,
+        entity_type: "community_post",
+        entity_id: postId,
+        parent_comment_id: state.data?.parent_comment_id || null,
+        body: text.slice(0,3000),
+        status: "published"
+      });
+      if (error) throw error;
+
+      const parentAuthor = state.data?.parent_author_profile_id;
+      if (parentAuthor && parentAuthor !== profileId) {
+        await supabase.from("notifications").insert({
+          tenant_id: TENANT_ID,
+          profile_id: parentAuthor,
+          type: "community_reply",
+          title: "Ответ на ваш комментарий",
+          body: text.slice(0,300),
+          entity_type: "community_post",
+          entity_id: postId
+        });
+        await sendToProfile(token, parentAuthor, "Ответ на ваш комментарий:\n\n" + text.slice(0,500), {
+          inline_keyboard: [[{ text: "Открыть обсуждение", callback_data: "cpost:" + postId }]]
+        });
+      }
+
+      if (post.author_profile_id !== profileId && post.author_profile_id !== parentAuthor) {
+        await supabase.from("notifications").insert({
+          tenant_id: TENANT_ID,
+          profile_id: post.author_profile_id,
+          type: "community_comment",
+          title: "Новый комментарий",
+          body: text.slice(0,300),
+          entity_type: "community_post",
+          entity_id: postId
+        });
+        await sendToProfile(token, post.author_profile_id, "Новый комментарий к «" + post.title + "»:\n\n" + text.slice(0,500), {
+          inline_keyboard: [[{ text: "Открыть обсуждение", callback_data: "cpost:" + postId }]]
+        });
+      }
+
+      await clearState(profileId);
+      await showCommunityPost(token, chatId, postId);
+    } else if (state?.state === "community_report") {
+      const postId = state.data?.post_id;
+      await supabase.from("community_reports").insert({
+        tenant_id: TENANT_ID,
+        reporter_profile_id: profileId,
+        entity_type: "community_post",
+        entity_id: postId,
+        reason: "user_report",
+        details: text.slice(0,2000),
+        status: "new"
+      });
+      await clearState(profileId);
+      await sendMessage(token, chatId, "Жалоба отправлена модератору.", { inline_keyboard: [[{ text: "К обсуждению", callback_data: "cpost:" + postId }]] });
+    } else if (state?.state === "community_dm") {
+      const target = state.data?.target_profile_id;
+      const postId = state.data?.post_id;
+      if (!target) throw new Error("target_missing");
+      const threadId = await createOrGetThread(profileId, target, postId);
+
+      await supabase.from("community_messages").insert({
+        tenant_id: TENANT_ID,
+        thread_id: threadId,
+        sender_profile_id: profileId,
+        body: text.slice(0,3000)
+      });
+      await supabase.from("notifications").insert({
+        tenant_id: TENANT_ID,
+        profile_id: target,
+        type: "community_dm",
+        title: "Новое личное сообщение",
+        body: text.slice(0,300),
+        entity_type: "community_thread",
+        entity_id: threadId
+      });
+      await sendToProfile(token, target, "Новое сообщение через «Конаково Рядом»:\n\n" + text.slice(0,700), {
+        inline_keyboard: [[{ text: "Ответить", callback_data: "dmreply:" + threadId }]]
+      });
+
+      await clearState(profileId);
+      await sendMessage(token, chatId, "Сообщение отправлено через бота. Ваш контакт не раскрыт.", mainKeyboard());
+    } else if (state?.state === "community_dm_reply") {
+      const threadId = state.data?.thread_id;
+      const { data: th } = await supabase.from("community_threads").select("member_a_profile_id,member_b_profile_id,status")
+        .eq("tenant_id", TENANT_ID).eq("id", threadId).maybeSingle();
+      if (!th || th.status !== "active") throw new Error("thread_not_found");
+
+      const target = th.member_a_profile_id === profileId ? th.member_b_profile_id : th.member_a_profile_id;
+      await supabase.from("community_messages").insert({
+        tenant_id: TENANT_ID,
+        thread_id: threadId,
+        sender_profile_id: profileId,
+        body: text.slice(0,3000)
+      });
+      await supabase.from("notifications").insert({
+        tenant_id: TENANT_ID,
+        profile_id: target,
+        type: "community_dm",
+        title: "Ответ на личное сообщение",
+        body: text.slice(0,300),
+        entity_type: "community_thread",
+        entity_id: threadId
+      });
+      await sendToProfile(token, target, "Ответ через «Конаково Рядом»:\n\n" + text.slice(0,700), {
+        inline_keyboard: [[{ text: "Ответить", callback_data: "dmreply:" + threadId }]]
+      });
+
+      await clearState(profileId);
+      await sendMessage(token, chatId, "Ответ отправлен.", mainKeyboard());
+    } else if (state?.state === "business_name") {
       await setState(profileId, "business_category", { name: text.slice(0,300) });
       await sendMessage(token, chatId, "Укажите категорию бизнеса. Например: кафе, автосервис, магазин, услуги.", { inline_keyboard: [[{ text: "Отмена", callback_data: "home" }]] });
     } else if (state?.state === "business_category") {
