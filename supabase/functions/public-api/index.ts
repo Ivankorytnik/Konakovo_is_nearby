@@ -20,5 +20,23 @@ Deno.serve(async req=>{
    const {data,error}=await db.from("businesses").select("id,name,category,description,address,phone,website,verified").eq("tenant_id",TENANT_ID).eq("status","active").order("verified",{ascending:false}).order("name",{ascending:true}).limit(100);
    return error?json({error:error.message},500):json(data);
  }
+ if(section==="community"){
+   const {data:posts,error}=await db.from("community_posts").select("id,title,category,body,location_text,published_at").eq("tenant_id",TENANT_ID).eq("status","published").order("published_at",{ascending:false}).limit(30);
+   if(error)return json({error:error.message},500);
+   const ids=(posts||[]).map((x:any)=>x.id);
+   let comments:any[]=[];let reactions:any[]=[];
+   if(ids.length){
+     const c=await db.from("community_comments").select("entity_id,body,created_at").eq("tenant_id",TENANT_ID).eq("entity_type","community_post").eq("status","published").in("entity_id",ids).order("created_at",{ascending:true});
+     const r=await db.from("community_reactions").select("entity_id,reaction").eq("tenant_id",TENANT_ID).eq("entity_type","community_post").in("entity_id",ids);
+     if(c.error)return json({error:c.error.message},500);
+     if(r.error)return json({error:r.error.message},500);
+     comments=c.data||[];reactions=r.data||[];
+   }
+   return json((posts||[]).map((p:any)=>({
+     ...p,
+     comments:comments.filter((c:any)=>c.entity_id===p.id).slice(-5),
+     reactions:reactions.filter((r:any)=>r.entity_id===p.id).reduce((a:any,x:any)=>{a[x.reaction]=(a[x.reaction]||0)+1;return a;},{})
+   })));
+ }
  return json({error:"unknown_section"},404);
 });
