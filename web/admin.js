@@ -1,4 +1,4 @@
-let key='',businessCache={};
+let key='',businessCache={},contentCache={},currentContentId=null;
 const K=window.KONAKOVO;
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 
@@ -21,7 +21,7 @@ async function loginNow(){
     sessionStorage.setItem('cc_key',key);
     login.classList.add('hide');app.classList.remove('hide');
     nUsers.textContent=d.users;nContent.textContent=d.content;nHelp.textContent=d.helpRequests;ov.textContent='Backend доступен.';
-    await Promise.all([loadTg(),loadContent(),loadHelp(),loadBusiness(),loadUsers(),loadAudit()]);
+    await Promise.all([loadTg(),loadContent(),loadHelp(),loadBusiness(),loadUsers(),loadAudit(),loadStats()]);
   }catch(e){loginErr.textContent='Неверный ключ администратора.'}
 }
 
@@ -43,16 +43,32 @@ async function connectTg(){
 }
 
 async function loadContent(){
-  const d=await api('content');
-  contentRows.innerHTML=d.map(x=>'<tr><td>'+new Date(x.created_at).toLocaleString('ru-RU')+'</td><td><b>'+esc(x.title)+'</b><br><span class="muted">'+esc(x.body||'').slice(0,180)+'</span></td><td>'+esc(x.type)+'</td><td><span class="badge">'+esc(x.status)+'</span></td></tr>').join('');
+  const d=await edge(K.contentApi);
+  contentCache={};d.forEach(x=>contentCache[x.id]=x);
+  nContent.textContent=d.length;
+  contentRows.innerHTML=d.map(x=>'<tr><td>'+new Date(x.created_at).toLocaleString('ru-RU')+'</td><td><b>'+esc(x.title)+'</b><br><span class="muted">'+esc(x.body||'').slice(0,180)+'</span></td><td>'+esc(x.type)+'</td><td><span class="badge">'+esc(x.status)+'</span><br><br><button class="small" onclick="editContent(\''+x.id+'\')">Изменить</button></td></tr>').join('');
+}
+
+function editContent(id){
+  const x=contentCache[id]; if(!x)return;
+  currentContentId=id; ctitle.value=x.title||''; ctype.value=x.type||'news'; cbody.value=x.body||'';
+  cmsg.className='muted'; cmsg.textContent='Редактируется существующий материал';
 }
 
 async function saveContent(status){
   if(!ctitle.value.trim())return;
   try{
-    await api('content',{method:'POST',body:JSON.stringify({title:ctitle.value.trim(),type:ctype.value,body:cbody.value,status})});
-    ctitle.value='';cbody.value='';cmsg.className='ok';cmsg.textContent=status==='published'?'Опубликовано в боте':'Черновик сохранён';loadContent();
+    await edge(K.contentApi,{method:'POST',body:JSON.stringify({id:currentContentId,title:ctitle.value.trim(),type:ctype.value,body:cbody.value,status})});
+    currentContentId=null;ctitle.value='';cbody.value='';cmsg.className='ok';cmsg.textContent=status==='published'?'Опубликовано в боте':status==='archived'?'Перенесено в архив':'Черновик сохранён';
+    await Promise.all([loadContent(),loadAudit(),loadStats()]);
   }catch(e){cmsg.className='bad';cmsg.textContent=e.message}
+}
+
+async function loadStats(){
+  try{
+    const d=await edge(K.statsApi);
+    ov.textContent='Активных пользователей: '+d.activeUsers+' · Приглашений: '+d.referrals+' · Опубликовано: '+d.publishedContent+' · Новых обращений: '+d.newHelp+' · Активных организаций: '+d.activeBusinesses;
+  }catch(e){ov.textContent='Backend доступен.'}
 }
 
 async function loadHelp(){
