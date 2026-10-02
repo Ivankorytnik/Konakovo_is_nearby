@@ -89,22 +89,22 @@ async function moderateHelp(id){
 async function loadBusiness(){
   const d=await edge(K.businessApi);
   nBiz.textContent=d.filter(x=>x.status!=='archived').length;businessCache={};d.forEach(x=>businessCache[x.id]=x);
-  bizRows.innerHTML=d.map(x=>'<tr><td><b>'+esc(x.name)+'</b><br><span class="muted">'+esc(x.address||'')+'</span></td><td>'+esc(x.category||'')+'</td><td>'+esc(x.phone||'')+'<br>'+esc(x.website||'')+'</td><td><span class="badge">'+esc(x.status)+'</span> '+(x.verified?'✓':'')+'</td><td><button class="small" onclick="editBusiness(\''+x.id+'\')">Изменить</button></td></tr>').join('');
+  bizRows.innerHTML=d.map(x=>'<tr><td><b>'+esc(x.name)+'</b><br><span class="muted">'+esc(x.address||'')+'</span></td><td>'+esc(x.category||'')+'</td><td>'+esc(x.phone||'')+'<br>'+esc(x.website||'')+'</td><td><span class="badge">'+esc(x.moderation_status||'pending')+'</span> '+(x.verified?'✓':'')+'<br><span class="muted">'+esc(x.moderation_note||'')+'</span></td><td><button class="small" onclick="editBusiness(\''+x.id+'\')">Изменить</button></td></tr>').join('');
 }
 
 function editBusiness(id){
   const x=businessCache[id];
-  bid.value=x.id;bname.value=x.name||'';bcat.value=x.category||'';baddr.value=x.address||'';bphone.value=x.phone||'';bsite.value=x.website||'';bdesc.value=x.description||'';bstatus.value=x.status;bverified.checked=!!x.verified;
+  bid.value=x.id;bname.value=x.name||'';bcat.value=x.category||'';baddr.value=x.address||'';bphone.value=x.phone||'';bsite.value=x.website||'';bdesc.value=x.description||'';bstatus.value=x.moderation_status||'pending';bnote.value=x.moderation_note||'';
 }
 
 function clearBusiness(){
-  bid.value='';bname.value='';bcat.value='';baddr.value='';bphone.value='';bsite.value='';bdesc.value='';bstatus.value='draft';bverified.checked=false;
+  bid.value='';bname.value='';bcat.value='';baddr.value='';bphone.value='';bsite.value='';bdesc.value='';bstatus.value='pending';bnote.value='';
 }
 
 async function saveBusiness(){
   if(!bname.value.trim())return;
   try{
-    await edge(K.businessApi,{method:'POST',body:JSON.stringify({id:bid.value||null,name:bname.value,category:bcat.value,description:bdesc.value,address:baddr.value,phone:bphone.value,website:bsite.value,status:bstatus.value,verified:bverified.checked})});
+    await edge(K.businessApi,{method:'POST',body:JSON.stringify({id:bid.value||null,name:bname.value,category:bcat.value,description:bdesc.value,address:baddr.value,phone:bphone.value,website:bsite.value,moderation_status:bstatus.value,moderation_note:bnote.value})});
     bmsg.className='ok';bmsg.textContent='Сохранено';clearBusiness();await Promise.all([loadBusiness(),loadAudit()]);
   }catch(e){bmsg.className='bad';bmsg.textContent=e.message}
 }
