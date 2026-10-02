@@ -80,33 +80,32 @@ function countLabel(title: string, total: number, fresh: number) {
   return fresh > 0 ? title + " · " + total + " · новых " + fresh : title + " · " + total;
 }
 
-async function mainMenuText(profileId: string) {
+async function countedKeyboard(profileId: string) {
   const c = await getSectionCounts(profileId);
-  const line = (cmd: string, title: string, total?: number, fresh?: number) => {
-    const count = typeof total === "number" ? " · " + total : "";
-    const freshText = fresh && fresh > 0 ? " · новых " + fresh : "";
-    return cmd + "  " + title + count + freshText;
+  return {
+    inline_keyboard: [
+      // Вход / витрина
+      [{ text: "Открыть Конаково Рядом", style: "primary", web_app: { url: "https://ivankorytnik.github.io/Konakovo_is_nearby/app.html" } }],
+
+      // Информация и общение
+      [{ text: countLabel("Что происходит рядом", c.feed.total, c.feed.fresh), style: "primary", callback_data: "feed" }],
+      [{ text: countLabel("Общение жителей", c.community.total, c.community.fresh), style: "primary", callback_data: "community" }],
+
+      // Помощь
+      [{ text: countLabel("Помощь рядом", c.help.total, c.help.fresh), callback_data: "help_list" }],
+      [{ text: "Нужна помощь", callback_data: "help" }],
+      [{ text: "Мои обращения", callback_data: "my_help" }],
+
+      // Бизнес
+      [{ text: "Места и бизнес", style: "success", callback_data: "business" }],
+      [{ text: "Добавить свой бизнес", style: "success", callback_data: "business_register" }],
+      [{ text: "Мой бизнес", style: "success", callback_data: "my_business" }],
+
+      // Личное / распространение
+      [{ text: "Мой профиль", callback_data: "profile" }],
+      [{ text: "Поделиться ботом", callback_data: "share" }]
+    ]
   };
-
-  return [
-    "Конаково Рядом",
-    "",
-    line("/nearby", "Что происходит рядом", c.feed.total, c.feed.fresh),
-    line("/community", "Общение жителей", c.community.total, c.community.fresh),
-    line("/helpnearby", "Помощь рядом", c.help.total, c.help.fresh),
-    "",
-    line("/help", "Нужна помощь"),
-    line("/places", "Места и бизнес"),
-    line("/addbusiness", "Добавить свой бизнес"),
-    line("/business", "Мой бизнес"),
-    line("/requests", "Мои обращения"),
-    line("/my", "Мой профиль"),
-    line("/share", "Поделиться ботом")
-  ].join("\n");
-}
-
-async function countedKeyboard(_profileId: string) {
-  return baseKeyboard();
 }
 
 
@@ -716,8 +715,8 @@ Deno.serve(async (req) => {
     await sendMessage(
       token,
       chatId,
-      await mainMenuText(profileId),
-      baseKeyboard()
+      "Конаково Рядом\n\nВыберите нужный раздел:",
+      await countedKeyboard(profileId)
     );
   } else if (text?.startsWith("/start cpost_")) {
     await clearState(profileId);
