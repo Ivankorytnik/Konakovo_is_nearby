@@ -1,10 +1,27 @@
 <!doctype html><html lang="ru"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>Конаково Рядом · Control Center</title><link rel="stylesheet" href="web/admin.css"></head><body>
-<header class="top"><div><div class="brand">Конаково Рядом</div><div class="muted">WEB Control Center · v3.5 Platform Ready</div></div><span class="badge">PRIVATE BETA</span></header>
+<header class="top"><div><div class="brand">Конаково Рядом</div><div class="muted">WEB Control Center · v3.5 Platform Ready</div></div><div class="toolbar"><span id="staffBadge" class="badge hide"></span><button id="logoutBtn" class="secondary hide" onclick="logoutNow()">Выйти</button><span class="badge">PRIVATE BETA</span></div></header>
 <div class="wrap">
-<section id="login" class="card"><h2>Вход</h2><input id="keyBox" type="password" placeholder="Admin key"><br><br><button onclick="loginNow()">Войти</button><p id="loginErr" class="bad"></p></section>
+<section id="login" class="card">
+<h2>Вход в Control Center</h2>
+<div id="normalLogin">
+  <input id="emailBox" type="email" autocomplete="username" placeholder="E-mail"><br><br>
+  <input id="passwordBox" type="password" autocomplete="current-password" placeholder="Пароль"><br><br>
+  <div class="toolbar"><button onclick="loginNow()">Войти</button><button class="secondary" onclick="forgotPassword()">Забыли пароль?</button></div>
+</div>
+<div id="bootstrap" class="hide">
+  <p class="muted">Первичная настройка. Создайте первого администратора. Старый Admin key понадобится только один раз.</p>
+  <input id="setupName" placeholder="Имя администратора"><br><br>
+  <input id="setupEmail" type="email" placeholder="E-mail"><br><br>
+  <input id="setupPassword" type="password" placeholder="Пароль, минимум 10 символов"><br><br>
+  <input id="setupKey" type="password" placeholder="Текущий Admin key"><br><br>
+  <button onclick="bootstrapAdmin()">Создать администратора</button>
+</div>
+<p id="loginErr" class="bad"></p><p id="loginMsg" class="ok"></p>
+</section>
+<section id="passwordRecovery" class="card hide"><h2>Новый пароль</h2><input id="newPasswordBox" type="password" placeholder="Новый пароль, минимум 10 символов"><br><br><button onclick="saveNewPassword()">Сохранить пароль</button><p id="recoveryMsg"></p></section>
 <section id="app" class="hide">
 <div class="grid"><div class="card"><div class="muted">Пользователи</div><div id="nUsers" class="num">0</div></div><div class="card"><div class="muted">Материалы</div><div id="nContent" class="num">0</div></div><div class="card"><div class="muted">Помощь</div><div id="nHelp" class="num">0</div></div><div class="card"><div class="muted">Бизнес</div><div id="nBiz" class="num">0</div></div></div>
-<div class="tabs"><button class="on" data-p="overview">Обзор</button><button data-p="telegram">Telegram</button><button data-p="content">Контент</button><button data-p="help">Помощь</button><button data-p="community">Общение</button><button data-p="business">Бизнес</button><button data-p="users">Пользователи</button><button data-p="audit">Аудит</button></div>
+<div class="tabs"><button class="on" data-p="overview">Обзор</button><button id="telegramTab" data-p="telegram">Telegram</button><button data-p="content">Контент</button><button data-p="help">Помощь</button><button data-p="community">Общение</button><button data-p="business">Бизнес</button><button data-p="users">Пользователи</button><button data-p="audit">Аудит</button><button id="teamTab" data-p="team">Команда</button></div>
 <div id="overview" class="card p on"><h2>Состояние</h2><p>Telegram и WEB используют одну базу Supabase. MAX подключается позже через IdentityLink.</p><p id="ov" class="muted">Загрузка...</p></div>
 <div id="telegram" class="card p"><h2>Telegram</h2><div id="tgStatus" class="muted">Проверка...</div><br><input id="tgToken" type="password" placeholder="Новый токен BotFather"><br><br><button onclick="connectTg()">Подключить / обновить</button><p id="tgResult"></p></div>
 <div id="content" class="card p"><h2>Контент</h2><div class="row"><input id="ctitle" placeholder="Заголовок"><select id="ctype"><option value="news">Новость</option><option value="event">Событие</option><option value="alert">Важно</option></select></div><br><textarea id="cbody" rows="4" placeholder="Текст"></textarea><br><br><div class="toolbar"><button onclick="saveContent('draft')">Черновик</button><button onclick="saveContent('published')">Опубликовать</button><button class="secondary" onclick="loadContent()">Обновить</button></div><p id="cmsg"></p><div style="overflow:auto"><table><thead><tr><th>Дата</th><th>Материал</th><th>Тип</th><th>Статус</th></tr></thead><tbody id="contentRows"></tbody></table></div></div>
@@ -13,5 +30,10 @@
 <div id="business" class="card p"><h2>Места и бизнес</h2><input id="bid" type="hidden"><div class="row"><input id="bname" placeholder="Название"><input id="bcat" placeholder="Категория"></div><br><div class="row"><input id="baddr" placeholder="Адрес"><input id="bphone" placeholder="Телефон"></div><br><input id="bsite" placeholder="Сайт"><br><br><textarea id="bdesc" rows="3" placeholder="Описание"></textarea><br><br><div class="row"><select id="bstatus"><option value="pending">На проверке</option><option value="approved">Одобрено</option><option value="rejected">Отклонено</option></select><input id="bnote" placeholder="Комментарий модератора"></div><br><div class="toolbar"><button onclick="saveBusiness()">Сохранить</button><button class="secondary" onclick="clearBusiness()">Новая запись</button></div><p id="bmsg"></p><div style="overflow:auto"><table><thead><tr><th>Название</th><th>Категория</th><th>Контакты</th><th>Статус</th><th></th></tr></thead><tbody id="bizRows"></tbody></table></div></div>
 <div id="users" class="card p"><h2>Пользователи</h2><button onclick="loadUsers()">Обновить</button><div style="overflow:auto"><table><thead><tr><th>Имя</th><th>Роль</th><th>Telegram</th><th>Статус</th><th>Создан</th></tr></thead><tbody id="userRows"></tbody></table></div></div>
 <div id="audit" class="card p"><h2>Audit Log</h2><button onclick="loadAudit()">Обновить</button><div style="overflow:auto"><table><thead><tr><th>Дата</th><th>Кто</th><th>Действие</th><th>Объект</th><th>Детали</th></tr></thead><tbody id="auditRows"></tbody></table></div></div>
+<div id="team" class="card p"><h2>Команда / модераторы</h2><p class="muted">У каждого сотрудника собственные e-mail и пароль. Действия фиксируются в Audit Log.</p>
+<div class="row"><input id="teamName" placeholder="Имя"><input id="teamEmail" type="email" placeholder="E-mail"></div><br>
+<div class="row"><input id="teamPassword" type="password" placeholder="Временный пароль, минимум 10 символов"><select id="teamRole"><option value="moderator">Модератор</option><option value="senior_moderator">Старший модератор</option><option value="administrator">Администратор</option></select></div><br>
+<button onclick="createStaff()">Добавить сотрудника</button><p id="teamMsg"></p>
+<div style="overflow:auto"><table><thead><tr><th>Имя</th><th>E-mail</th><th>Роль</th><th>Статус</th><th>Последний вход</th><th></th></tr></thead><tbody id="teamRows"></tbody></table></div></div>
 </section></div>
-<script src="web/config.js"></script><script src="web/admin.js"></script></body></html>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script><script src="web/config.js"></script><script src="web/admin.js"></script></body></html>
