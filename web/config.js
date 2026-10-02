@@ -1,4 +1,6 @@
 window.KONAKOVO={
+  supabaseUrl:'https://lwzqfmrbwtwfeuuikqsw.supabase.co',
+  supabaseKey:'sb_publishable_9pf-lAIf7QECTqqE3CkgMQ_LCwSbsYU',
   api:'https://lwzqfmrbwtwfeuuikqsw.supabase.co/functions/v1/admin-api',
   helpApi:'https://lwzqfmrbwtwfeuuikqsw.supabase.co/functions/v1/help-admin',
   businessApi:'https://lwzqfmrbwtwfeuuikqsw.supabase.co/functions/v1/business-admin',
