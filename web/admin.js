@@ -115,13 +115,13 @@ async function loadUsers(){
   userRows.innerHTML=d.map(x=>{
     const roleOptions=['guest','registered','verified','business','admin'].map(r=>'<option value="'+r+'"'+(x.role===r?' selected':'')+'>'+r+'</option>').join('');
     const statusOptions=['active','blocked'].map(s=>'<option value="'+s+'"'+(x.status===s?' selected':'')+'>'+s+'</option>').join('');
-    return '<tr><td>'+esc(x.display_name||'')+'</td><td><select id="ur-'+x.id+'">'+roleOptions+'</select></td><td>'+esc((x.identity_links||[]).map(i=>i.username?'@'+i.username:i.channel).join(', '))+'</td><td><select id="us-'+x.id+'">'+statusOptions+'</select><br><br><button class="small" onclick="saveUser(\''+x.id+'\')">Сохранить</button></td><td>'+new Date(x.created_at).toLocaleString('ru-RU')+'</td></tr>';
+    return '<tr><td>'+esc(x.display_name||'')+'</td><td><select id="ur-'+x.id+'">'+roleOptions+'</select></td><td>'+esc((x.identity_links||[]).map(i=>i.username?'@'+i.username:i.channel).join(', '))+'</td><td><select id="us-'+x.id+'">'+statusOptions+'</select><br><label><input type="checkbox" id="ub-'+x.id+'" style="width:auto"'+(x.beta_allowed?' checked':'')+'> PRIVATE BETA</label><br><br><button class="small" onclick="saveUser(\''+x.id+'\')">Сохранить</button></td><td>'+new Date(x.created_at).toLocaleString('ru-RU')+'</td></tr>';
   }).join('');
 }
 
 async function saveUser(id){
   try{
-    await edge(K.userApi,{method:'POST',body:JSON.stringify({id,role:document.getElementById('ur-'+id).value,status:document.getElementById('us-'+id).value})});
+    await edge(K.userApi,{method:'POST',body:JSON.stringify({id,role:document.getElementById('ur-'+id).value,status:document.getElementById('us-'+id).value,beta_allowed:document.getElementById('ub-'+id).checked})});
     await Promise.all([loadUsers(),loadAudit(),loadStats()]);
   }catch(e){alert(e.message)}
 }
