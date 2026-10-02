@@ -19,7 +19,9 @@ function mainKeyboard() {
       [{ text: "Нужна помощь", callback_data: "help" }],
       [{ text: "Места и бизнес", callback_data: "business" }],
       [{ text: "Помощь рядом", callback_data: "help_list" }],
-      [{ text: "Поделиться ботом", callback_data: "share" }]
+      [{ text: "Поделиться ботом", callback_data: "share" }],
+      [{ text: "Мои обращения", callback_data: "my_help" }],
+      [{ text: "Мой профиль", callback_data: "profile" }]
     ]
   };
 }
@@ -44,6 +46,23 @@ async function sendMessage(token: string, chatId: number | string, text: string,
     body: JSON.stringify({ chat_id: chatId, text, reply_markup: reply_markup ?? mainKeyboard() })
   });
   if (!res.ok) throw new Error(await res.text());
+}
+
+async function ensureCommands(token: string) {
+  const commands = [
+    { command: "start", description: "Открыть главное меню" },
+    { command: "nearby", description: "Что происходит рядом" },
+    { command: "help", description: "Нужна помощь" },
+    { command: "places", description: "Места и бизнес" },
+    { command: "share", description: "Поделиться ботом" },
+    { command: "requests", description: "Мои обращения" },
+    { command: "my", description: "Мой профиль" }
+  ];
+  await fetch(`https://api.telegram.org/bot${token}/setMyCommands`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ commands, language_code: "ru" })
+  });
 }
 
 async function answerCallback(token: string, id: string) {
@@ -142,6 +161,69 @@ async function showApprovedHelp(token: string, chatId: number | string) {
   }).join("\n\n");
 
   await sendMessage(token, chatId, "Помощь рядом\n\n" + text);
+}
+
+async function showMyHelp(token: string, chatId: number | string, profileId: string) {
+  const { data, error } = await supabase
+    .from("help_requests")
+    .select("title,description,location_text,status,created_at,moderation_note")
+    .eq("author_profile_id", profileId)
+    .order("created_at", { ascending: false })
+    .limit(10);
+
+  if (error) throw error;
+  if (!data?.length) {
+    await sendMessage(token, chatId, "У вас пока нет обращений помощи.");
+    return;
+  }
+
+  const labels: Record<string,string> = {
+    new: "Новое",
+    review: "На проверке",
+    approved: "Одобрено",
+    rejected: "Отклонено",
+    closed: "Закрыто"
+  };
+
+  const text = data.map((x: any) => {
+    const date = new Date(x.created_at).toLocaleDateString("ru-RU");
+    return `• ${x.title} — ${labels[x.status] || x.status} — ${date}\n${x.description || ""}${x.moderation_note ? "\nКомментарий: " + x.moderation_note : ""}`;
+  }).join("\n\n");
+
+  await sendMessage(token, chatId, "Мои обращения\n\n" + text);
+}
+
+async function showProfile(token: string, chatId: number | string, profileId: string) {
+  const { data: profile, error } = await supabase
+    .from("profiles")
+    .select("display_name,role,status,created_at,referral_code")
+    .eq("id", profileId)
+    .single();
+  if (error) throw error;
+
+  const { count } = await supabase
+    .from("referrals")
+    .select("*", { count: "exact", head: true })
+    .eq("inviter_profile_id", profileId);
+
+  const roles: Record<string,string> = {
+    guest: "Гость",
+    registered: "Пользователь",
+    verified: "Проверенный пользователь",
+    business: "Бизнес",
+    admin: "Администратор"
+  };
+
+  const text = [
+    "Мой профиль",
+    "",
+    profile.display_name ? "Имя: " + profile.display_name : null,
+    "Статус: " + (roles[profile.role] || profile.role),
+    "В боте с: " + new Date(profile.created_at).toLocaleDateString("ru-RU"),
+    "Приглашено людей: " + (count || 0)
+  ].filter(Boolean).join("\n");
+
+  await sendMessage(token, chatId, text);
 }
 
 async function shareBot(token: string, chatId: number | string, profileId: string) {
@@ -252,12 +334,25 @@ Deno.serve(async (req) => {
   const profileId = await getOrCreateProfile(from);
   const text = update.message?.text?.trim();
   await registerReferral(profileId, text);
+
+  const { data: profileStatus } = await supabase
+    .from("profiles")
+    .select("status")
+    .eq("id", profileId)
+    .single();
+
+  if (profileStatus?.status === "blocked") {
+    await sendMessage(token, chatId, "Доступ к боту временно ограничен.");
+    await supabase.from("telegram_updates").update({ processed_at: new Date().toISOString() }).eq("update_id", updateId);
+    return new Response("ok");
+  }
   const action = update.callback_query?.data;
 
   if (update.callback_query?.id) await answerCallback(token, update.callback_query.id);
 
   if (action === "home" || text === "/start" || text?.startsWith("/start ref_") || text === "/start@konakovo_ryadom_bot") {
     await clearState(profileId);
+    await ensureCommands(token);
     await sendMessage(
       token,
       chatId,
@@ -276,6 +371,12 @@ Deno.serve(async (req) => {
   } else if (action === "share" || text === "/share") {
     await clearState(profileId);
     await shareBot(token, chatId, profileId);
+  } else if (action === "my_help" || text === "/requests") {
+    await clearState(profileId);
+    await showMyHelp(token, chatId, profileId);
+  } else if (action === "profile" || text === "/my") {
+    await clearState(profileId);
+    await showProfile(token, chatId, profileId);
   } else if (action === "help" || text === "/help") {
     await setState(profileId, "help_category");
     await sendMessage(token, chatId, "Нужна помощь\n\nВыберите тип обращения:", helpKeyboard());
