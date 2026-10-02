@@ -16,13 +16,13 @@ async function getSecret(name: string) {
 function baseKeyboard() {
   return {
     inline_keyboard: [
-      [{ text: "Открыть Конаково Рядом", web_app: { url: "https://ivankorytnik.github.io/Konakovo_is_nearby/app.html" } }],
-      [{ text: "Что происходит рядом", callback_data: "feed" }],
+      [{ text: "Открыть Конаково Рядом", style: "primary", web_app: { url: "https://ivankorytnik.github.io/Konakovo_is_nearby/app.html" } }],
+      [{ text: "Что происходит рядом", style: "primary", callback_data: "feed" }],
       [{ text: "Нужна помощь", callback_data: "help" }],
-      [{ text: "Места и бизнес", callback_data: "business" }],
-      [{ text: "Добавить свой бизнес", callback_data: "business_register" }],
+      [{ text: "Места и бизнес", style: "success", callback_data: "business" }],
+      [{ text: "Добавить свой бизнес", style: "success", callback_data: "business_register" }],
       [{ text: "Мой бизнес", callback_data: "my_business" }],
-      [{ text: "Общение жителей", callback_data: "community" }],
+      [{ text: "Общение жителей", style: "primary", callback_data: "community" }],
       [{ text: "Помощь рядом", callback_data: "help_list" }],
       [{ text: "Поделиться ботом", callback_data: "share" }],
       [{ text: "Мои обращения", callback_data: "my_help" }],
@@ -92,13 +92,13 @@ async function countedKeyboard(profileId: string) {
   const c = await getSectionCounts(profileId);
   return {
     inline_keyboard: [
-      [{ text: "Открыть Конаково Рядом", web_app: { url: "https://ivankorytnik.github.io/Konakovo_is_nearby/app.html" } }],
-      [{ text: countLabel("Что происходит рядом", c.feed.total, c.feed.fresh), callback_data: "feed" }],
+      [{ text: "Открыть Конаково Рядом", style: "primary", web_app: { url: "https://ivankorytnik.github.io/Konakovo_is_nearby/app.html" } }],
+      [{ text: countLabel("Что происходит рядом", c.feed.total, c.feed.fresh), style: "primary", callback_data: "feed" }],
       [{ text: "Нужна помощь", callback_data: "help" }],
-      [{ text: "Места и бизнес", callback_data: "business" }],
-      [{ text: "Добавить свой бизнес", callback_data: "business_register" }],
+      [{ text: "Места и бизнес", style: "success", callback_data: "business" }],
+      [{ text: "Добавить свой бизнес", style: "success", callback_data: "business_register" }],
       [{ text: "Мой бизнес", callback_data: "my_business" }],
-      [{ text: countLabel("Общение жителей", c.community.total, c.community.fresh), callback_data: "community" }],
+      [{ text: countLabel("Общение жителей", c.community.total, c.community.fresh), style: "primary", callback_data: "community" }],
       [{ text: countLabel("Помощь рядом", c.help.total, c.help.fresh), callback_data: "help_list" }],
       [{ text: "Поделиться ботом", callback_data: "share" }],
       [{ text: "Мои обращения", callback_data: "my_help" }],
@@ -134,7 +134,7 @@ function helpKeyboard() {
       [{ text: "Нужна помощь", callback_data: "helpcat:need_help" }],
       [{ text: "Могу помочь", callback_data: "helpcat:can_help" }],
       [{ text: "Другое", callback_data: "helpcat:other" }],
-      [{ text: "Посмотреть одобренные", callback_data: "help_list" }],
+      [{ text: "Посмотреть одобренные", style: "primary", callback_data: "help_list" }],
       [{ text: "Назад", callback_data: "home" }]
     ]
   };
@@ -217,7 +217,7 @@ async function showCommunity(token: string, chatId: number | string) {
   if (!posts?.length) {
     await sendMessage(token, chatId, "Общение жителей\n\nПока опубликованных обсуждений нет. Можно создать первое.", {
       inline_keyboard: [
-        [{ text: "Создать обсуждение", callback_data: "community_new" }],
+        [{ text: "Создать обсуждение", style: "success", callback_data: "community_new" }],
         [{ text: "Назад", callback_data: "home" }]
       ]
     });
