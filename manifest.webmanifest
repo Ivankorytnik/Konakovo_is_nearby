@@ -1,0 +1,17 @@
+{
+  "name": "Конаково Рядом",
+  "short_name": "Конаково",
+  "start_url": "./",
+  "display": "standalone",
+  "background_color": "#f7f5ef",
+  "theme_color": "#173b47",
+  "description": "Городской сервис Конаково: новости, события, помощь, места и общение.",
+  "icons": [
+    {
+      "src": "favicon.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    }
+  ]
+}
