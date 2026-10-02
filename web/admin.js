@@ -1,6 +1,6 @@
 const K=window.KONAKOVO;
 const sb=window.supabase.createClient(K.supabaseUrl,K.supabaseKey,{auth:{persistSession:true,autoRefreshToken:true,detectSessionInUrl:true}});
-let currentSession=null,currentStaff=null,businessCache={},contentCache={},currentContentId=null;
+let currentSession=null,currentStaff=null,businessCache={},contentCache={},currentContentId=null,newsCache={};
 
 const esc=v=>String(v??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const HELP={new:'Новая',review:'На модерации',approved:'Одобрено',rejected:'Отклонено',closed:'Закрыто'};
@@ -42,7 +42,7 @@ async function showApp(){
   telegramTab.classList.toggle('hide',!isAdmin);teamTab.classList.toggle('hide',!isAdmin);
   const d=await api('dashboard');
   nUsers.textContent=d.users;nContent.textContent=d.content;nHelp.textContent=d.helpRequests;ov.textContent='Backend доступен.';
-  const jobs=[loadContent(),loadHelp(),loadCommunity(),loadBusiness(),loadUsers(),loadAudit(),loadStats()];
+  const jobs=[loadNews(),loadContent(),loadHelp(),loadCommunity(),loadBusiness(),loadUsers(),loadAudit(),loadStats()];
   if(isAdmin)jobs.push(loadTg(),loadTeam());
   await Promise.all(jobs);
 }
@@ -107,6 +107,46 @@ async function connectTg(){
     const d=await api('telegram-connect',{method:'POST',body:JSON.stringify({token:tgToken.value.trim()})});
     tgToken.value='';tgResult.className='ok';tgResult.textContent='Готово: @'+d.bot.username;loadTg();
   }catch(e){tgResult.className='bad';tgResult.textContent=e.message}
+}
+
+
+async function loadNews(){
+  try{
+    const d=await edge(K.newsApi+'?status=pending');
+    newsCache={};(d.items||[]).forEach(x=>newsCache[x.id]=x);
+    nNews.textContent=d.pendingCount||0;newsTabCount.textContent=d.pendingCount?'('+d.pendingCount+')':'';
+    newsRows.innerHTML=(d.items||[]).map(x=>{
+      const age=x.source_published_at?new Date(x.source_published_at).toLocaleString('ru-RU'):'время источника не указано';
+      const src='<a href="'+esc(x.article_url)+'" target="_blank" rel="noopener">Открыть источник</a>';
+      return '<div class="card" style="margin:12px 0"><div class="muted">'+esc(x.source_name)+' · '+age+' · релевантность '+esc(x.relevance_score)+'/100</div><br>'+
+        '<input id="nt-'+x.id+'" value="'+esc(x.title)+'"><br><br>'+
+        '<textarea id="nb-'+x.id+'" rows="4">'+esc(x.draft_body||x.snippet||'')+'</textarea><br><br>'+
+        '<div class="toolbar"><select id="ny-'+x.id+'"><option value="news">Новость</option><option value="event">Событие</option><option value="alert">Важно</option></select>'+
+        '<button onclick="approveNews(\''+x.id+'\')">Одобрить и опубликовать</button>'+
+        '<button class="secondary" onclick="rejectNews(\''+x.id+'\')">Отклонить</button></div><p class="muted">'+src+' · '+esc((x.relevance_reasons||[]).join(' · '))+'</p></div>';
+    }).join('')||'<div class="muted">Новых материалов на модерации нет.</div>';
+    newsSourceRows.innerHTML=(d.sources||[]).map(s=>'<tr><td><b>'+esc(s.name)+'</b><br><span class="muted">'+esc(s.url)+'</span></td><td>'+esc(s.last_checked_at?new Date(s.last_checked_at).toLocaleString('ru-RU'):'ещё не проверялся')+'</td><td>'+(s.last_error?'<span class="bad">'+esc(s.last_error).slice(0,180)+'</span>':'<span class="ok">ОК</span>')+'</td></tr>').join('');
+  }catch(e){newsMsg.className='bad';newsMsg.textContent=e.message}
+}
+async function approveNews(id){
+  const x=newsCache[id];if(!x)return;
+  newsMsg.className='muted';newsMsg.textContent='Публикация...';
+  try{
+    await edge(K.newsApi,{method:'POST',body:JSON.stringify({action:'approve',id,title:document.getElementById('nt-'+id).value,body:document.getElementById('nb-'+id).value,type:document.getElementById('ny-'+id).value})});
+    newsMsg.className='ok';newsMsg.textContent='Новость опубликована.';
+    await Promise.all([loadNews(),loadContent(),loadAudit(),loadStats()]);
+  }catch(e){newsMsg.className='bad';newsMsg.textContent=e.message}
+}
+async function rejectNews(id){
+  try{await edge(K.newsApi,{method:'POST',body:JSON.stringify({action:'reject',id})});await Promise.all([loadNews(),loadAudit()])}catch(e){newsMsg.className='bad';newsMsg.textContent=e.message}
+}
+async function scanNews(){
+  newsMsg.className='muted';newsMsg.textContent='Проверяю источники...';
+  try{
+    const d=await edge(K.newsApi,{method:'POST',body:JSON.stringify({action:'scan'})});
+    newsMsg.className='ok';newsMsg.textContent='Проверено источников: '+(d.sources||0)+'. Найдено новых: '+(d.inserted||0)+'.';
+    await loadNews();
+  }catch(e){newsMsg.className='bad';newsMsg.textContent=e.message}
 }
 
 async function loadContent(){
