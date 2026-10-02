@@ -17,7 +17,9 @@ function mainKeyboard() {
     inline_keyboard: [
       [{ text: "Что происходит рядом", callback_data: "feed" }],
       [{ text: "Нужна помощь", callback_data: "help" }],
-      [{ text: "Места и бизнес", callback_data: "business" }]
+      [{ text: "Места и бизнес", callback_data: "business" }],
+      [{ text: "Помощь рядом", callback_data: "help_list" }],
+      [{ text: "Поделиться ботом", callback_data: "share" }]
     ]
   };
 }
@@ -29,6 +31,7 @@ function helpKeyboard() {
       [{ text: "Нужна помощь", callback_data: "helpcat:need_help" }],
       [{ text: "Могу помочь", callback_data: "helpcat:can_help" }],
       [{ text: "Другое", callback_data: "helpcat:other" }],
+      [{ text: "Посмотреть одобренные", callback_data: "help_list" }],
       [{ text: "Назад", callback_data: "home" }]
     ]
   };
@@ -119,6 +122,70 @@ async function showFeed(token: string, chatId: number | string) {
   await sendMessage(token, chatId, "Что происходит рядом\n\n" + text);
 }
 
+async function showApprovedHelp(token: string, chatId: number | string) {
+  const { data, error } = await supabase
+    .from("help_requests")
+    .select("title,description,location_text,created_at")
+    .eq("status", "approved")
+    .order("created_at", { ascending: false })
+    .limit(10);
+
+  if (error) throw error;
+  if (!data?.length) {
+    await sendMessage(token, chatId, "Пока нет одобренных обращений помощи.");
+    return;
+  }
+
+  const text = data.map((x: any) => {
+    const date = x.created_at ? new Date(x.created_at).toLocaleDateString("ru-RU") : "";
+    return `• ${x.title}${date ? " — " + date : ""}\n${x.description || ""}\n${x.location_text ? "Место: " + x.location_text : ""}`;
+  }).join("\n\n");
+
+  await sendMessage(token, chatId, "Помощь рядом\n\n" + text);
+}
+
+async function shareBot(token: string, chatId: number | string, profileId: string) {
+  const { data, error } = await supabase
+    .from("profiles")
+    .select("referral_code")
+    .eq("id", profileId)
+    .single();
+  if (error) throw error;
+
+  const code = data?.referral_code || "";
+  const url = `https://t.me/konakovo_ryadom_bot?start=ref_${code}`;
+
+  await sendMessage(
+    token,
+    chatId,
+    "Поделитесь «Конаково Рядом» с друзьями и соседями. Чем больше жителей подключится, тем полезнее станет городской помощник.",
+    { inline_keyboard: [
+      [{ text: "Открыть ссылку для приглашения", url }],
+      [{ text: "Назад", callback_data: "home" }]
+    ]}
+  );
+}
+
+async function registerReferral(profileId: string, startText?: string) {
+  if (!startText?.startsWith("/start ref_")) return;
+  const code = startText.replace("/start ref_", "").trim().slice(0, 32);
+  if (!code) return;
+
+  const { data: inviter } = await supabase
+    .from("profiles")
+    .select("id")
+    .eq("referral_code", code)
+    .maybeSingle();
+
+  if (!inviter?.id || inviter.id === profileId) return;
+
+  await supabase.from("referrals").insert({
+    inviter_profile_id: inviter.id,
+    invitee_profile_id: profileId,
+    channel: "telegram"
+  });
+}
+
 async function showBusinesses(token: string, chatId: number | string) {
   const { data, error } = await supabase
     .from("businesses")
@@ -184,11 +251,12 @@ Deno.serve(async (req) => {
 
   const profileId = await getOrCreateProfile(from);
   const text = update.message?.text?.trim();
+  await registerReferral(profileId, text);
   const action = update.callback_query?.data;
 
   if (update.callback_query?.id) await answerCallback(token, update.callback_query.id);
 
-  if (action === "home" || text === "/start" || text === "/start@konakovo_ryadom_bot") {
+  if (action === "home" || text === "/start" || text?.startsWith("/start ref_") || text === "/start@konakovo_ryadom_bot") {
     await clearState(profileId);
     await sendMessage(
       token,
@@ -202,6 +270,12 @@ Deno.serve(async (req) => {
   } else if (action === "business" || text === "/places") {
     await clearState(profileId);
     await showBusinesses(token, chatId);
+  } else if (action === "help_list") {
+    await clearState(profileId);
+    await showApprovedHelp(token, chatId);
+  } else if (action === "share" || text === "/share") {
+    await clearState(profileId);
+    await shareBot(token, chatId, profileId);
   } else if (action === "help" || text === "/help") {
     await setState(profileId, "help_category");
     await sendMessage(token, chatId, "Нужна помощь\n\nВыберите тип обращения:", helpKeyboard());
