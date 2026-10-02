@@ -399,7 +399,7 @@ async function clearState(profileId: string) {
 async function showFeed(token: string, chatId: number | string) {
   const { data, error } = await supabase
     .from("content_items")
-    .select("title,body,published_at,type")
+    .select("title,body,published_at,type,source_name,source_article_url")
     .eq("tenant_id", TENANT_ID)
     .eq("status", "published")
     .order("published_at", { ascending: false })
@@ -413,7 +413,7 @@ async function showFeed(token: string, chatId: number | string) {
 
   const text = data.map((x: any) => {
     const date = x.published_at ? new Date(x.published_at).toLocaleDateString("ru-RU") : "";
-    return `• ${x.title}${date ? " — " + date : ""}\n${x.body || ""}`;
+    return `• ${x.title}${date ? " — " + date : ""}\n${x.body || ""}${x.source_article_url ? "\nИсточник: " + (x.source_name || "ссылка") + " — " + x.source_article_url : ""}`;
   }).join("\n\n");
 
   await sendMessage(token, chatId, "Что происходит рядом\n\n" + text);
