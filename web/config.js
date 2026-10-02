@@ -9,5 +9,7 @@ window.KONAKOVO={
   statsApi:'https://lwzqfmrbwtwfeuuikqsw.supabase.co/functions/v1/stats-admin',
   userApi:'https://lwzqfmrbwtwfeuuikqsw.supabase.co/functions/v1/user-admin',
   communityApi:'https://lwzqfmrbwtwfeuuikqsw.supabase.co/functions/v1/community-admin',
+  publicApi:'https://lwzqfmrbwtwfeuuikqsw.supabase.co/functions/v1/public-api',
+  residentApi:'https://lwzqfmrbwtwfeuuikqsw.supabase.co/functions/v1/resident-api',
   newsApi:'https://lwzqfmrbwtwfeuuikqsw.supabase.co/functions/v1/news-admin'
 };

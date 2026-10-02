@@ -1,1 +1,124 @@
-<!doctype html><html lang="ru"><head><meta charset="utf-8"><meta http-equiv="refresh" content="0;url=admin.html"><title>Конаково Рядом</title><link rel="icon" href="favicon.svg" type="image/svg+xml"></head><body><a href="admin.html">Открыть WEB Control Center</a></body></html>
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+  <meta name="theme-color" content="#173b47">
+  <meta name="description" content="Конаково Рядом — новости, события, помощь, объявления, места и общение жителей Конаково.">
+  <title>Конаково Рядом</title>
+  <link rel="icon" href="favicon.svg" type="image/svg+xml">
+  <link rel="manifest" href="manifest.webmanifest">
+  <link rel="stylesheet" href="web/resident.css">
+</head>
+<body>
+<header class="site-header">
+  <div class="shell header-inner">
+    <a class="brand" href="#home" aria-label="Конаково Рядом">
+      <span class="brand-mark">К</span>
+      <span><b>Конаково Рядом</b><small>город рядом с вами</small></span>
+    </a>
+    <div class="search-wrap">
+      <input id="globalSearch" type="search" placeholder="Поиск по Конаково" aria-label="Поиск">
+    </div>
+    <div class="header-actions">
+      <button id="notifBtn" class="icon-btn hidden" type="button" title="Уведомления">🔔<span id="notifCount" class="counter hidden"></span></button>
+      <button id="authBtn" class="btn secondary" type="button">Войти</button>
+      <button id="profileBtn" class="profile-chip hidden" type="button"></button>
+    </div>
+  </div>
+</header>
+
+<nav class="main-nav">
+  <div class="shell nav-scroll" id="mainNav">
+    <button data-view="home" class="active">Главная</button>
+    <button data-view="news">Новости</button>
+    <button data-view="events">Афиша</button>
+    <button data-view="help">Помощь</button>
+    <button data-view="community">Общение</button>
+    <button data-view="business">Места и услуги</button>
+  </div>
+</nav>
+
+<main class="shell">
+  <section id="hero" class="hero">
+    <div>
+      <div class="eyebrow">Конаково · Волга · сосновый бор</div>
+      <h1>Всё важное в городе — в одном месте</h1>
+      <p>Новости, события, помощь, места, объявления и общение жителей. Сайт работает на одной платформе с Telegram и MAX.</p>
+      <div class="hero-actions">
+        <button class="btn" data-create="help">Попросить помощь</button>
+        <button class="btn secondary" data-create="post">Написать жителям</button>
+        <button class="btn secondary" data-create="content">Предложить новость</button>
+      </div>
+    </div>
+    <div class="river-card" aria-hidden="true">
+      <div class="sun"></div>
+      <div class="pine p1"></div><div class="pine p2"></div><div class="pine p3"></div>
+      <div class="bridge"></div>
+      <div class="water w1"></div><div class="water w2"></div><div class="water w3"></div>
+    </div>
+  </section>
+
+  <section id="important" class="important hidden">
+    <strong>Важно сейчас</strong>
+    <div id="importantItems"></div>
+  </section>
+
+  <section class="quick-grid">
+    <button data-view="news"><span>📰</span><b>Новости</b><small>Что происходит в городе</small></button>
+    <button data-view="events"><span>📅</span><b>Афиша</b><small>Куда сходить</small></button>
+    <button data-view="help"><span>🤝</span><b>Помощь</b><small>Нужна помощь или можете помочь</small></button>
+    <button data-view="community"><span>💬</span><b>Общение</b><small>Обсуждения жителей</small></button>
+    <button data-view="business"><span>📍</span><b>Места и услуги</b><small>Городской каталог</small></button>
+    <button data-create="business"><span>🏪</span><b>Добавить бизнес</b><small>Отправить карточку на проверку</small></button>
+  </section>
+
+  <section class="layout">
+    <div class="content-column">
+      <div class="section-head">
+        <div><span class="eyebrow">Лента</span><h2 id="viewTitle">Сегодня в Конаково</h2></div>
+        <button id="refreshBtn" class="text-btn">Обновить</button>
+      </div>
+      <div id="statusLine" class="status-line">Загрузка…</div>
+      <div id="feed" class="feed"></div>
+    </div>
+
+    <aside class="side-column">
+      <div class="side-card">
+        <div class="side-title">Быстрые действия</div>
+        <button data-create="help">+ Попросить помощь</button>
+        <button data-create="post">+ Создать обсуждение</button>
+        <button data-create="content">+ Предложить новость</button>
+        <button data-create="business">+ Добавить организацию</button>
+      </div>
+      <div class="side-card">
+        <div class="side-title">О платформе</div>
+        <p>Одна база данных для сайта, Telegram, MAX и Web Control Center. Публикации проходят единую модерацию и после одобрения становятся доступны во всех подключённых каналах.</p>
+      </div>
+      <a class="admin-link" href="admin.html">WEB Control Center →</a>
+    </aside>
+  </section>
+</main>
+
+<nav class="mobile-nav">
+  <button data-view="home" class="active"><span>⌂</span>Главная</button>
+  <button data-view="news"><span>📰</span>Новости</button>
+  <button id="mobileCreate"><span class="plus">+</span>Создать</button>
+  <button data-view="help"><span>🤝</span>Помощь</button>
+  <button data-view="community"><span>💬</span>Общение</button>
+</nav>
+
+<div id="modal" class="modal hidden" role="dialog" aria-modal="true">
+  <div class="modal-card">
+    <button id="modalClose" class="modal-close" aria-label="Закрыть">×</button>
+    <div id="modalBody"></div>
+  </div>
+</div>
+
+<div id="toast" class="toast hidden"></div>
+
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<script src="web/config.js"></script>
+<script src="web/resident.js"></script>
+</body>
+</html>
