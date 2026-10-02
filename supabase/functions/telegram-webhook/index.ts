@@ -17,19 +17,11 @@ function baseKeyboard() {
   return {
     inline_keyboard: [
       [{ text: "Открыть Конаково Рядом", style: "primary", web_app: { url: "https://ivankorytnik.github.io/Konakovo_is_nearby/app.html" } }],
-      [{ text: "Что происходит рядом", style: "primary", callback_data: "feed" }],
-      [{ text: "Нужна помощь", callback_data: "help" }],
-      [{ text: "Места и бизнес", style: "success", callback_data: "business" }],
-      [{ text: "Добавить свой бизнес", style: "success", callback_data: "business_register" }],
-      [{ text: "Мой бизнес", callback_data: "my_business" }],
-      [{ text: "Общение жителей", style: "primary", callback_data: "community" }],
-      [{ text: "Помощь рядом", callback_data: "help_list" }],
-      [{ text: "Поделиться ботом", callback_data: "share" }],
-      [{ text: "Мои обращения", callback_data: "my_help" }],
-      [{ text: "Мой профиль", callback_data: "profile" }]
+      [{ text: "Главное меню", callback_data: "home" }]
     ]
   };
 }
+
 
 
 async function getSectionCounts(profileId: string) {
@@ -88,24 +80,35 @@ function countLabel(title: string, total: number, fresh: number) {
   return fresh > 0 ? title + " · " + total + " · новых " + fresh : title + " · " + total;
 }
 
-async function countedKeyboard(profileId: string) {
+async function mainMenuText(profileId: string) {
   const c = await getSectionCounts(profileId);
-  return {
-    inline_keyboard: [
-      [{ text: "Открыть Конаково Рядом", style: "primary", web_app: { url: "https://ivankorytnik.github.io/Konakovo_is_nearby/app.html" } }],
-      [{ text: countLabel("Что происходит рядом", c.feed.total, c.feed.fresh), style: "primary", callback_data: "feed" }],
-      [{ text: "Нужна помощь", callback_data: "help" }],
-      [{ text: "Места и бизнес", style: "success", callback_data: "business" }],
-      [{ text: "Добавить свой бизнес", style: "success", callback_data: "business_register" }],
-      [{ text: "Мой бизнес", callback_data: "my_business" }],
-      [{ text: countLabel("Общение жителей", c.community.total, c.community.fresh), style: "primary", callback_data: "community" }],
-      [{ text: countLabel("Помощь рядом", c.help.total, c.help.fresh), callback_data: "help_list" }],
-      [{ text: "Поделиться ботом", callback_data: "share" }],
-      [{ text: "Мои обращения", callback_data: "my_help" }],
-      [{ text: "Мой профиль", callback_data: "profile" }]
-    ]
+  const line = (cmd: string, title: string, total?: number, fresh?: number) => {
+    const count = typeof total === "number" ? " · " + total : "";
+    const freshText = fresh && fresh > 0 ? " · новых " + fresh : "";
+    return cmd + "  " + title + count + freshText;
   };
+
+  return [
+    "Конаково Рядом",
+    "",
+    line("/nearby", "Что происходит рядом", c.feed.total, c.feed.fresh),
+    line("/community", "Общение жителей", c.community.total, c.community.fresh),
+    line("/helpnearby", "Помощь рядом", c.help.total, c.help.fresh),
+    "",
+    line("/help", "Нужна помощь"),
+    line("/places", "Места и бизнес"),
+    line("/addbusiness", "Добавить свой бизнес"),
+    line("/business", "Мой бизнес"),
+    line("/requests", "Мои обращения"),
+    line("/my", "Мой профиль"),
+    line("/share", "Поделиться ботом")
+  ].join("\n");
 }
+
+async function countedKeyboard(_profileId: string) {
+  return baseKeyboard();
+}
+
 
 async function markSectionRead(profileId: string, section: "feed" | "community" | "help") {
   const now = new Date().toISOString();
@@ -171,7 +174,9 @@ async function ensureCommands(token: string) {
     { command: "requests", description: "Мои обращения" },
     { command: "my", description: "Мой профиль" },
     { command: "business", description: "Мой бизнес" },
-    { command: "community", description: "Общение жителей" }
+    { command: "community", description: "Общение жителей" },
+    { command: "helpnearby", description: "Помощь рядом" },
+    { command: "addbusiness", description: "Добавить свой бизнес" }
   ];
   await fetch(`https://api.telegram.org/bot${token}/setMyCommands`, {
     method: "POST",
@@ -711,8 +716,8 @@ Deno.serve(async (req) => {
     await sendMessage(
       token,
       chatId,
-      "Конаково Рядом\n\nГородской помощник: события, помощь, места, объявления и полезная информация рядом.",
-      await countedKeyboard(profileId)
+      await mainMenuText(profileId),
+      baseKeyboard()
     );
   } else if (text?.startsWith("/start cpost_")) {
     await clearState(profileId);
@@ -727,7 +732,7 @@ Deno.serve(async (req) => {
   } else if (action === "my_business" || text === "/business") {
     await clearState(profileId);
     await showMyBusiness(token, chatId, profileId);
-  } else if (action === "business_register") {
+  } else if (action === "business_register" || text === "/addbusiness") {
     await setState(profileId, "business_name", {});
     await sendMessage(token, chatId, "Регистрация бизнеса\n\nВведите название организации.", { inline_keyboard: [[{ text: "Отмена", callback_data: "home" }]] });
   } else if (action === "community" || text === "/community") {
@@ -797,7 +802,7 @@ Deno.serve(async (req) => {
       await setState(profileId, "community_dm_reply", { thread_id: threadId });
       await sendMessage(token, chatId, "Напишите ответ одним сообщением.", { inline_keyboard: [[{ text: "Отмена", callback_data: "home" }]] });
     }
-  } else if (action === "help_list") {
+  } else if (action === "help_list" || text === "/helpnearby") {
     await clearState(profileId);
     await showApprovedHelp(token, chatId);
     await markSectionRead(profileId, "help");
@@ -862,7 +867,7 @@ Deno.serve(async (req) => {
       });
 
       await clearState(profileId);
-      await sendMessage(token, chatId, "Обсуждение отправлено на модерацию. После одобрения оно появится у жителей.", await countedKeyboard(profileId));
+      await sendMessage(token, chatId, "Обсуждение отправлено на модерацию. После одобрения оно появится у жителей.", baseKeyboard());
     } else if (state?.state === "community_comment") {
       const postId = state.data?.post_id;
       const { data: post } = await supabase.from("community_posts").select("author_profile_id,title")
@@ -952,7 +957,7 @@ Deno.serve(async (req) => {
       });
 
       await clearState(profileId);
-      await sendMessage(token, chatId, "Сообщение отправлено через бота. Ваш контакт не раскрыт.", await countedKeyboard(profileId));
+      await sendMessage(token, chatId, "Сообщение отправлено через бота. Ваш контакт не раскрыт.", baseKeyboard());
     } else if (state?.state === "community_dm_reply") {
       const threadId = state.data?.thread_id;
       const { data: th } = await supabase.from("community_threads").select("member_a_profile_id,member_b_profile_id,status")
@@ -980,7 +985,7 @@ Deno.serve(async (req) => {
       });
 
       await clearState(profileId);
-      await sendMessage(token, chatId, "Ответ отправлен.", await countedKeyboard(profileId));
+      await sendMessage(token, chatId, "Ответ отправлен.", baseKeyboard());
     } else if (state?.state === "business_name") {
       await setState(profileId, "business_category", { name: text.slice(0,300) });
       await sendMessage(token, chatId, "Укажите категорию бизнеса. Например: кафе, автосервис, магазин, услуги.", { inline_keyboard: [[{ text: "Отмена", callback_data: "home" }]] });
@@ -1024,7 +1029,7 @@ Deno.serve(async (req) => {
       });
 
       await clearState(profileId);
-      await sendMessage(token, chatId, "Заявка на регистрацию бизнеса отправлена на проверку. После модерации я сообщу результат.", await countedKeyboard(profileId));
+      await sendMessage(token, chatId, "Заявка на регистрацию бизнеса отправлена на проверку. После модерации я сообщу результат.", baseKeyboard());
     } else if (state?.state === "help_description") {
       const category = state.data?.category || "other";
       await setState(profileId, "help_location", { category, description: text });
@@ -1069,10 +1074,10 @@ Deno.serve(async (req) => {
         token,
         chatId,
         "Готово. Обращение принято и отправлено на модерацию. После проверки оно сможет появиться в разделе помощи.",
-        await countedKeyboard(profileId)
+        baseKeyboard()
       );
     } else {
-      await sendMessage(token, chatId, "Выберите нужный раздел в меню.", await countedKeyboard(profileId));
+      await sendMessage(token, chatId, "Выберите нужный раздел в меню.", baseKeyboard());
     }
   }
 
