@@ -20,6 +20,8 @@ function mainKeyboard() {
       [{ text: "Что происходит рядом", callback_data: "feed" }],
       [{ text: "Нужна помощь", callback_data: "help" }],
       [{ text: "Места и бизнес", callback_data: "business" }],
+      [{ text: "Добавить свой бизнес", callback_data: "business_register" }],
+      [{ text: "Мой бизнес", callback_data: "my_business" }],
       [{ text: "Помощь рядом", callback_data: "help_list" }],
       [{ text: "Поделиться ботом", callback_data: "share" }],
       [{ text: "Мои обращения", callback_data: "my_help" }],
@@ -58,7 +60,8 @@ async function ensureCommands(token: string) {
     { command: "places", description: "Места и бизнес" },
     { command: "share", description: "Поделиться ботом" },
     { command: "requests", description: "Мои обращения" },
-    { command: "my", description: "Мой профиль" }
+    { command: "my", description: "Мой профиль" },
+    { command: "business", description: "Мой бизнес" }
   ];
   await fetch(`https://api.telegram.org/bot${token}/setMyCommands`, {
     method: "POST",
@@ -292,6 +295,43 @@ async function registerReferral(profileId: string, startText?: string) {
   });
 }
 
+async function showMyBusiness(token: string, chatId: number | string, profileId: string) {
+  const { data, error } = await supabase
+    .from("businesses")
+    .select("name,category,address,phone,website,status,verified,moderation_status,moderation_note,created_at")
+    .eq("tenant_id", TENANT_ID)
+    .eq("owner_profile_id", profileId)
+    .order("created_at", { ascending: false })
+    .limit(10);
+
+  if (error) throw error;
+  if (!data?.length) {
+    await sendMessage(token, chatId, "У вас пока нет зарегистрированного бизнеса.");
+    return;
+  }
+
+  const labels: Record<string,string> = {
+    pending: "На проверке",
+    approved: "Одобрено",
+    rejected: "Отклонено"
+  };
+
+  const text = data.map((x: any) => {
+    const parts = [
+      x.verified ? "✓ " + x.name : x.name,
+      x.category,
+      "Статус: " + (labels[x.moderation_status] || x.moderation_status),
+      x.address,
+      x.phone,
+      x.website,
+      x.moderation_note ? "Комментарий: " + x.moderation_note : null
+    ].filter(Boolean);
+    return parts.join("\n");
+  }).join("\n\n");
+
+  await sendMessage(token, chatId, "Мой бизнес\n\n" + text);
+}
+
 async function showBusinesses(token: string, chatId: number | string) {
   const { data, error } = await supabase
     .from("businesses")
@@ -414,6 +454,12 @@ Deno.serve(async (req) => {
   } else if (action === "business" || text === "/places") {
     await clearState(profileId);
     await showBusinesses(token, chatId);
+  } else if (action === "my_business" || text === "/business") {
+    await clearState(profileId);
+    await showMyBusiness(token, chatId, profileId);
+  } else if (action === "business_register") {
+    await setState(profileId, "business_name", {});
+    await sendMessage(token, chatId, "Регистрация бизнеса\n\nВведите название организации.", { inline_keyboard: [[{ text: "Отмена", callback_data: "home" }]] });
   } else if (action === "help_list") {
     await clearState(profileId);
     await showApprovedHelp(token, chatId);
@@ -446,7 +492,51 @@ Deno.serve(async (req) => {
       .eq("profile_id", profileId)
       .maybeSingle();
 
-    if (state?.state === "help_description") {
+    if (state?.state === "business_name") {
+      await setState(profileId, "business_category", { name: text.slice(0,300) });
+      await sendMessage(token, chatId, "Укажите категорию бизнеса. Например: кафе, автосервис, магазин, услуги.", { inline_keyboard: [[{ text: "Отмена", callback_data: "home" }]] });
+    } else if (state?.state === "business_category") {
+      await setState(profileId, "business_address", { ...state.data, category: text.slice(0,200) });
+      await sendMessage(token, chatId, "Введите адрес бизнеса.", { inline_keyboard: [[{ text: "Отмена", callback_data: "home" }]] });
+    } else if (state?.state === "business_address") {
+      await setState(profileId, "business_phone", { ...state.data, address: text.slice(0,500) });
+      await sendMessage(token, chatId, "Введите телефон для связи.", { inline_keyboard: [[{ text: "Отмена", callback_data: "home" }]] });
+    } else if (state?.state === "business_phone") {
+      await setState(profileId, "business_website", { ...state.data, phone: text.slice(0,100) });
+      await sendMessage(token, chatId, "Введите сайт или ссылку на соцсеть. Если нет — напишите «нет».", { inline_keyboard: [[{ text: "Отмена", callback_data: "home" }]] });
+    } else if (state?.state === "business_website") {
+      await setState(profileId, "business_description", { ...state.data, website: text.toLowerCase()==="нет" ? null : text.slice(0,1000) });
+      await sendMessage(token, chatId, "Кратко опишите ваш бизнес и основные услуги.", { inline_keyboard: [[{ text: "Отмена", callback_data: "home" }]] });
+    } else if (state?.state === "business_description") {
+      const d = state.data || {};
+      const { data: row, error } = await supabase.from("businesses").insert({
+        tenant_id: TENANT_ID,
+        owner_profile_id: profileId,
+        name: d.name,
+        category: d.category,
+        address: d.address,
+        phone: d.phone,
+        website: d.website,
+        description: text.slice(0,5000),
+        status: "draft",
+        verified: false,
+        moderation_status: "pending",
+        submitted_at: new Date().toISOString()
+      }).select("id").single();
+      if (error) throw error;
+
+      await supabase.from("audit_log").insert({
+        tenant_id: TENANT_ID,
+        actor: "telegram",
+        action: "business_submitted",
+        entity_type: "business",
+        entity_id: row.id,
+        metadata: { owner_profile_id: profileId }
+      });
+
+      await clearState(profileId);
+      await sendMessage(token, chatId, "Заявка на регистрацию бизнеса отправлена на проверку. После модерации я сообщу результат.", mainKeyboard());
+    } else if (state?.state === "help_description") {
       const category = state.data?.category || "other";
       await setState(profileId, "help_location", { category, description: text });
       await sendMessage(
