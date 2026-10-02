@@ -12,6 +12,16 @@ async function getSecret(name: string) {
   return data as string | null;
 }
 
+function keyboard() {
+  return {
+    inline_keyboard: [
+      [{ text: "Что происходит рядом", callback_data: "feed" }],
+      [{ text: "Нужна помощь", callback_data: "help" }],
+      [{ text: "Места и бизнес", callback_data: "business" }]
+    ]
+  };
+}
+
 async function sendMessage(token: string, chatId: number | string, text: string) {
   const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: "POST",
@@ -19,16 +29,18 @@ async function sendMessage(token: string, chatId: number | string, text: string)
     body: JSON.stringify({
       chat_id: chatId,
       text,
-      reply_markup: {
-        inline_keyboard: [
-          [{ text: "Что происходит рядом", callback_data: "feed" }],
-          [{ text: "Нужна помощь", callback_data: "help" }],
-          [{ text: "Места и бизнес", callback_data: "business" }]
-        ]
-      }
+      reply_markup: keyboard()
     })
   });
   if (!res.ok) throw new Error(await res.text());
+}
+
+async function answerCallback(token: string, id: string) {
+  await fetch(`https://api.telegram.org/bot${token}/answerCallbackQuery`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ callback_query_id: id })
+  });
 }
 
 Deno.serve(async (req) => {
@@ -48,7 +60,10 @@ Deno.serve(async (req) => {
   const updateId = Number(update.update_id);
   if (!Number.isFinite(updateId)) return new Response("bad update", { status: 400 });
 
-  const { error: insertError } = await supabase.from("telegram_updates").insert({ update_id: updateId, payload: update });
+  const { error: insertError } = await supabase
+    .from("telegram_updates")
+    .insert({ update_id: updateId, payload: update });
+
   if (insertError?.code === "23505") return new Response("duplicate");
   if (insertError) return new Response(insertError.message, { status: 500 });
 
@@ -65,38 +80,75 @@ Deno.serve(async (req) => {
       .maybeSingle();
 
     if (!identity?.profile_id) {
-      const { data: profile, error: profileError } = await supabase.from("profiles").insert({
-        role: "registered",
-        display_name: [from.first_name, from.last_name].filter(Boolean).join(" ") || from.username || "Telegram user"
-      }).select("id").single();
+      const { data: profile, error: profileError } = await supabase
+        .from("profiles")
+        .insert({
+          role: "registered",
+          display_name:
+            [from.first_name, from.last_name].filter(Boolean).join(" ") ||
+            from.username ||
+            "Telegram user"
+        })
+        .select("id")
+        .single();
+
       if (profileError) return new Response(profileError.message, { status: 500 });
 
-      const { error: linkError } = await supabase.from("identity_links").insert({
-        profile_id: profile.id,
-        channel: "telegram",
-        external_user_id: externalId,
-        username: from.username ?? null,
-        first_name: from.first_name ?? null,
-        last_name: from.last_name ?? null,
-        is_primary: true
-      });
+      const { error: linkError } = await supabase
+        .from("identity_links")
+        .insert({
+          profile_id: profile.id,
+          channel: "telegram",
+          external_user_id: externalId,
+          username: from.username ?? null,
+          first_name: from.first_name ?? null,
+          last_name: from.last_name ?? null,
+          is_primary: true
+        });
+
       if (linkError) return new Response(linkError.message, { status: 500 });
     }
   }
 
-  if (chatId && update.message?.text === "/start") {
-    await sendMessage(token, chatId, "Конаково Рядом\n\nГородской помощник: события, помощь, места, объявления и полезная информация рядом.");
-  }
-
+  const text = update.message?.text?.trim();
   const action = update.callback_query?.data;
-  if (chatId && action === "help") {
-    await sendMessage(token, chatId, "Раздел «Помощь» готовится. Здесь можно будет сообщить о потерянных животных, попросить помощи или откликнуться.");
-  } else if (chatId && action === "feed") {
-    await sendMessage(token, chatId, "Лента «Что происходит рядом» готовится. Здесь будут новости, события и важные сообщения по Конаково.");
-  } else if (chatId && action === "business") {
-    await sendMessage(token, chatId, "Раздел «Места и бизнес» готовится. Здесь появятся услуги, организации, акции и полезные места.");
+
+  if (update.callback_query?.id) {
+    await answerCallback(token, update.callback_query.id);
   }
 
-  await supabase.from("telegram_updates").update({ processed_at: new Date().toISOString() }).eq("update_id", updateId);
+  if (chatId && (text === "/start" || text === "/start@konakovo_ryadom_bot")) {
+    await sendMessage(
+      token,
+      chatId,
+      "Конаково Рядом\n\nГородской помощник: события, помощь, места, объявления и полезная информация рядом."
+    );
+  } else if (chatId && (text === "/nearby" || action === "feed")) {
+    await sendMessage(
+      token,
+      chatId,
+      "Что происходит рядом\n\nЗдесь будут новости, события и важные сообщения по Конаково."
+    );
+  } else if (chatId && (text === "/help" || action === "help")) {
+    await sendMessage(
+      token,
+      chatId,
+      "Нужна помощь\n\nЗдесь можно будет сообщить о потерянных животных, попросить помощи или откликнуться."
+    );
+  } else if (chatId && (text === "/places" || action === "business")) {
+    await sendMessage(
+      token,
+      chatId,
+      "Места и бизнес\n\nЗдесь появятся услуги, организации, акции и полезные места Конаково."
+    );
+  } else if (chatId && text?.startsWith("/")) {
+    await sendMessage(token, chatId, "Команда пока не поддерживается. Выберите раздел в меню.");
+  }
+
+  await supabase
+    .from("telegram_updates")
+    .update({ processed_at: new Date().toISOString() })
+    .eq("update_id", updateId);
+
   return new Response("ok");
 });
