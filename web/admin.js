@@ -67,7 +67,7 @@ async function saveContent(status){
 async function loadStats(){
   try{
     const d=await edge(K.statsApi);
-    ov.textContent='Активных пользователей: '+d.activeUsers+' · Приглашений: '+d.referrals+' · Опубликовано: '+d.publishedContent+' · Новых обращений: '+d.newHelp+' · Активных организаций: '+d.activeBusinesses;
+    ov.textContent='Активных пользователей: '+d.activeUsers+' · Приглашений: '+d.referrals+' · Опубликовано: '+d.publishedContent+' · Новых обращений: '+d.newHelp+' · Активных организаций: '+d.activeBusinesses+' · Обсуждений: '+d.publishedCommunity+' · На модерации: '+d.pendingCommunity+' · Жалоб: '+d.newCommunityReports;
   }catch(e){ov.textContent='Backend доступен.'}
 }
 
