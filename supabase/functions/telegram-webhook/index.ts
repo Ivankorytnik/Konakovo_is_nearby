@@ -414,10 +414,22 @@ Deno.serve(async (req) => {
 
   const { data: profileStatus } = await supabase
     .from("profiles")
-    .select("status")
+    .select("status,beta_allowed")
     .eq("tenant_id", TENANT_ID)
     .eq("id", profileId)
     .single();
+
+  const { data: betaConfig } = await supabase
+    .from("app_config")
+    .select("value")
+    .eq("key", "private_beta")
+    .maybeSingle();
+
+  if (betaConfig?.value?.enabled === true && profileStatus?.beta_allowed !== true) {
+    await sendMessage(token, chatId, "Конаково Рядом сейчас работает в закрытом тестовом режиме. Ваш профиль создан, но доступ должен подтвердить администратор.");
+    await supabase.from("telegram_updates").update({ processed_at: new Date().toISOString() }).eq("tenant_id", TENANT_ID).eq("update_id", updateId);
+    return new Response("ok");
+  }
 
   if (profileStatus?.status === "blocked") {
     await sendMessage(token, chatId, "Доступ к боту временно ограничен.");
