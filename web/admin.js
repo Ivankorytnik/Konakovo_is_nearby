@@ -8,10 +8,10 @@ async function api(path,opt={}){
   if(!r.ok)throw Error(d.error||t);return d;
 }
 
-async function rpc(name,args={}){
-  const r=await fetch(K.rest+name,{method:'POST',headers:{'content-type':'application/json','apikey':K.publishable,'Authorization':'Bearer '+K.publishable},body:JSON.stringify({p_key:key,...args})});
+async function edge(url,opt={}){
+  const r=await fetch(url,{...opt,headers:{'content-type':'application/json','x-admin-key':key,...(opt.headers||{})}});
   const t=await r.text();let d;try{d=JSON.parse(t)}catch{d={error:t}}
-  if(!r.ok)throw Error(d.message||d.error||t);return d;
+  if(!r.ok)throw Error(d.error||t);return d;
 }
 
 async function loginNow(){
@@ -56,7 +56,7 @@ async function saveContent(status){
 }
 
 async function loadHelp(){
-  const d=await rpc('admin_list_help');nHelp.textContent=d.length;
+  const d=await edge(K.helpApi);nHelp.textContent=d.length;
   helpRows.innerHTML=d.map(x=>{
     const opts=['new','review','approved','rejected','closed'].map(s=>'<option value="'+s+'"'+(x.status===s?' selected':'')+'>'+s+'</option>').join('');
     return '<tr><td>'+new Date(x.created_at).toLocaleString('ru-RU')+'</td><td>'+esc(x.category)+'</td><td>'+esc(x.description||'')+'</td><td>'+esc(x.location_text||'')+'</td><td><select id="hs-'+x.id+'">'+opts+'</select><br><br><input id="hn-'+x.id+'" value="'+esc(x.moderation_note||'')+'" placeholder="Комментарий"><br><br><button class="small" onclick="moderateHelp(\''+x.id+'\')">Сохранить</button></td></tr>';
@@ -65,13 +65,13 @@ async function loadHelp(){
 
 async function moderateHelp(id){
   try{
-    await rpc('admin_update_help',{p_id:id,p_status:document.getElementById('hs-'+id).value,p_note:document.getElementById('hn-'+id).value});
+    await edge(K.helpApi,{method:'POST',body:JSON.stringify({id,status:document.getElementById('hs-'+id).value,note:document.getElementById('hn-'+id).value})});
     await Promise.all([loadHelp(),loadAudit()]);
   }catch(e){alert(e.message)}
 }
 
 async function loadBusiness(){
-  const d=await rpc('admin_list_businesses');
+  const d=await edge(K.businessApi);
   nBiz.textContent=d.filter(x=>x.status!=='archived').length;businessCache={};d.forEach(x=>businessCache[x.id]=x);
   bizRows.innerHTML=d.map(x=>'<tr><td><b>'+esc(x.name)+'</b><br><span class="muted">'+esc(x.address||'')+'</span></td><td>'+esc(x.category||'')+'</td><td>'+esc(x.phone||'')+'<br>'+esc(x.website||'')+'</td><td><span class="badge">'+esc(x.status)+'</span> '+(x.verified?'✓':'')+'</td><td><button class="small" onclick="editBusiness(\''+x.id+'\')">Изменить</button></td></tr>').join('');
 }
@@ -88,7 +88,7 @@ function clearBusiness(){
 async function saveBusiness(){
   if(!bname.value.trim())return;
   try{
-    await rpc('admin_save_business',{p_id:bid.value||null,p_name:bname.value,p_category:bcat.value,p_description:bdesc.value,p_address:baddr.value,p_phone:bphone.value,p_website:bsite.value,p_status:bstatus.value,p_verified:bverified.checked});
+    await edge(K.businessApi,{method:'POST',body:JSON.stringify({id:bid.value||null,name:bname.value,category:bcat.value,description:bdesc.value,address:baddr.value,phone:bphone.value,website:bsite.value,status:bstatus.value,verified:bverified.checked})});
     bmsg.className='ok';bmsg.textContent='Сохранено';clearBusiness();await Promise.all([loadBusiness(),loadAudit()]);
   }catch(e){bmsg.className='bad';bmsg.textContent=e.message}
 }
@@ -99,7 +99,7 @@ async function loadUsers(){
 }
 
 async function loadAudit(){
-  const d=await rpc('admin_list_audit');
+  const d=await edge(K.auditApi);
   auditRows.innerHTML=d.map(x=>'<tr><td>'+new Date(x.created_at).toLocaleString('ru-RU')+'</td><td>'+esc(x.actor)+'</td><td>'+esc(x.action)+'</td><td>'+esc((x.entity_type||'')+' '+(x.entity_id||''))+'</td><td>'+esc(JSON.stringify(x.metadata||{})).slice(0,220)+'</td></tr>').join('');
 }
 
