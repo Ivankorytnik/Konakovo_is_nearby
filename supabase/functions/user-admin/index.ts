@@ -15,8 +15,10 @@ Deno.serve(async req=>{
  const roles=["guest","registered","verified","business","admin"];
  const statuses=["active","blocked"];
  if(!b.id||!roles.includes(b.role)||!statuses.includes(b.status))return json({error:"invalid_input"},400);
- const {data,error}=await db.from("profiles").update({role:b.role,status:b.status,updated_at:new Date().toISOString()}).eq("tenant_id",TENANT_ID).eq("id",b.id).select().single();
+ const patch:any={role:b.role,status:b.status,updated_at:new Date().toISOString()};
+ if(typeof b.beta_allowed==="boolean")patch.beta_allowed=b.beta_allowed;
+ const {data,error}=await db.from("profiles").update(patch).eq("tenant_id",TENANT_ID).eq("id",b.id).select().single();
  if(error)return json({error:error.message},400);
- await db.from("audit_log").insert({tenant_id:TENANT_ID,actor:"admin",action:"user_updated",entity_type:"profile",entity_id:String(b.id),metadata:{role:b.role,status:b.status}});
+ await db.from("audit_log").insert({tenant_id:TENANT_ID,actor:"admin",action:"user_updated",entity_type:"profile",entity_id:String(b.id),metadata:{role:b.role,status:b.status,beta_allowed:b.beta_allowed}});
  return json(data);
 });
