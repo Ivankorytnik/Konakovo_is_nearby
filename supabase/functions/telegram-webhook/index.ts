@@ -1,15 +1,19 @@
 import "jsr:@supabase/functions-js/edge-runtime.d.ts";
 import { createClient } from "npm:@supabase/supabase-js@2.57.4";
 
-const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
-const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
-const TELEGRAM_BOT_TOKEN = Deno.env.get("TELEGRAM_BOT_TOKEN")!;
-const TELEGRAM_WEBHOOK_SECRET = Deno.env.get("TELEGRAM_WEBHOOK_SECRET")!;
+const supabase = createClient(
+  Deno.env.get("SUPABASE_URL")!,
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+);
 
-const supabase = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+async function getSecret(name: string) {
+  const { data, error } = await supabase.rpc("get_platform_secret", { p_name: name });
+  if (error) throw error;
+  return data as string | null;
+}
 
-async function sendMessage(chatId: number | string, text: string) {
-  const res = await fetch(`https://api.telegram.org/bot${TELEGRAM_BOT_TOKEN}/sendMessage`, {
+async function sendMessage(token: string, chatId: number | string, text: string) {
+  const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({
@@ -30,20 +34,22 @@ async function sendMessage(chatId: number | string, text: string) {
 Deno.serve(async (req) => {
   if (req.method !== "POST") return new Response("ok");
 
-  const secret = req.headers.get("x-telegram-bot-api-secret-token");
-  if (!secret || secret !== TELEGRAM_WEBHOOK_SECRET) {
+  const [webhookSecret, token] = await Promise.all([
+    getSecret("telegram_webhook_secret"),
+    getSecret("telegram_bot_token")
+  ]);
+
+  if (!webhookSecret || req.headers.get("x-telegram-bot-api-secret-token") !== webhookSecret) {
     return new Response("forbidden", { status: 403 });
   }
+  if (!token) return new Response("bot not configured", { status: 503 });
 
   const update = await req.json();
   const updateId = Number(update.update_id);
   if (!Number.isFinite(updateId)) return new Response("bad update", { status: 400 });
 
-  const { error: insertError } = await supabase
-    .from("telegram_updates")
-    .insert({ update_id: updateId, payload: update });
-
-  if (insertError && insertError.code === "23505") return new Response("duplicate");
+  const { error: insertError } = await supabase.from("telegram_updates").insert({ update_id: updateId, payload: update });
+  if (insertError?.code === "23505") return new Response("duplicate");
   if (insertError) return new Response(insertError.message, { status: 500 });
 
   const from = update.message?.from ?? update.callback_query?.from;
@@ -58,23 +64,15 @@ Deno.serve(async (req) => {
       .eq("external_user_id", externalId)
       .maybeSingle();
 
-    let profileId = identity?.profile_id;
-
-    if (!profileId) {
-      const { data: profile, error: profileError } = await supabase
-        .from("profiles")
-        .insert({
-          role: "registered",
-          display_name: [from.first_name, from.last_name].filter(Boolean).join(" ") || from.username || "Telegram user"
-        })
-        .select("id")
-        .single();
-
+    if (!identity?.profile_id) {
+      const { data: profile, error: profileError } = await supabase.from("profiles").insert({
+        role: "registered",
+        display_name: [from.first_name, from.last_name].filter(Boolean).join(" ") || from.username || "Telegram user"
+      }).select("id").single();
       if (profileError) return new Response(profileError.message, { status: 500 });
-      profileId = profile.id;
 
       const { error: linkError } = await supabase.from("identity_links").insert({
-        profile_id: profileId,
+        profile_id: profile.id,
         channel: "telegram",
         external_user_id: externalId,
         username: from.username ?? null,
@@ -82,26 +80,23 @@ Deno.serve(async (req) => {
         last_name: from.last_name ?? null,
         is_primary: true
       });
-
       if (linkError) return new Response(linkError.message, { status: 500 });
     }
   }
 
   if (chatId && update.message?.text === "/start") {
-    await sendMessage(
-      chatId,
-      "Конаково Рядом\n\nГородской помощник: события, помощь, места, объявления и полезная информация рядом."
-    );
+    await sendMessage(token, chatId, "Конаково Рядом\n\nГородской помощник: события, помощь, места, объявления и полезная информация рядом.");
   }
 
-  if (chatId && update.callback_query?.data === "help") {
-    await sendMessage(chatId, "Раздел «Помощь» готовится. Здесь можно будет сообщить о потерянных животных, попросить помощи или откликнуться.");
+  const action = update.callback_query?.data;
+  if (chatId && action === "help") {
+    await sendMessage(token, chatId, "Раздел «Помощь» готовится. Здесь можно будет сообщить о потерянных животных, попросить помощи или откликнуться.");
+  } else if (chatId && action === "feed") {
+    await sendMessage(token, chatId, "Лента «Что происходит рядом» готовится. Здесь будут новости, события и важные сообщения по Конаково.");
+  } else if (chatId && action === "business") {
+    await sendMessage(token, chatId, "Раздел «Места и бизнес» готовится. Здесь появятся услуги, организации, акции и полезные места.");
   }
 
-  await supabase
-    .from("telegram_updates")
-    .update({ processed_at: new Date().toISOString() })
-    .eq("update_id", updateId);
-
+  await supabase.from("telegram_updates").update({ processed_at: new Date().toISOString() }).eq("update_id", updateId);
   return new Response("ok");
 });
