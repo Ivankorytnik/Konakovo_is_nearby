@@ -13,7 +13,7 @@ async function getSecret(name: string) {
   return data as string | null;
 }
 
-function mainKeyboard() {
+function baseKeyboard() {
   return {
     inline_keyboard: [
       [{ text: "Открыть Конаково Рядом", web_app: { url: "https://ivankorytnik.github.io/Konakovo_is_nearby/app.html" } }],
@@ -31,6 +31,102 @@ function mainKeyboard() {
   };
 }
 
+
+async function getSectionCounts(profileId: string) {
+  const { data: reads } = await supabase
+    .from("section_reads")
+    .select("section,last_seen_at")
+    .eq("tenant_id", TENANT_ID)
+    .eq("profile_id", profileId);
+
+  const seen = Object.fromEntries((reads || []).map((x: any) => [x.section, x.last_seen_at]));
+
+  const [
+    feedTotal, communityTotal, helpTotal,
+    feedNew, communityNew, helpNew, communityNotifications
+  ] = await Promise.all([
+    supabase.from("content_items").select("*", { count: "exact", head: true })
+      .eq("tenant_id", TENANT_ID).eq("status", "published"),
+    supabase.from("community_posts").select("*", { count: "exact", head: true })
+      .eq("tenant_id", TENANT_ID).eq("status", "published"),
+    supabase.from("help_requests").select("*", { count: "exact", head: true })
+      .eq("tenant_id", TENANT_ID).eq("status", "approved"),
+
+    seen.feed
+      ? supabase.from("content_items").select("*", { count: "exact", head: true })
+          .eq("tenant_id", TENANT_ID).eq("status", "published").gt("published_at", seen.feed)
+      : supabase.from("content_items").select("*", { count: "exact", head: true })
+          .eq("tenant_id", TENANT_ID).eq("status", "published"),
+
+    seen.community
+      ? supabase.from("community_posts").select("*", { count: "exact", head: true })
+          .eq("tenant_id", TENANT_ID).eq("status", "published").gt("published_at", seen.community)
+      : supabase.from("community_posts").select("*", { count: "exact", head: true })
+          .eq("tenant_id", TENANT_ID).eq("status", "published"),
+
+    seen.help
+      ? supabase.from("help_requests").select("*", { count: "exact", head: true })
+          .eq("tenant_id", TENANT_ID).eq("status", "approved").gt("moderated_at", seen.help)
+      : supabase.from("help_requests").select("*", { count: "exact", head: true })
+          .eq("tenant_id", TENANT_ID).eq("status", "approved"),
+
+    supabase.from("notifications").select("*", { count: "exact", head: true })
+      .eq("tenant_id", TENANT_ID)
+      .eq("profile_id", profileId)
+      .is("read_at", null)
+      .in("type", ["community_comment","community_reply","community_dm"])
+  ]);
+
+  return {
+    feed: { total: feedTotal.count || 0, fresh: feedNew.count || 0 },
+    community: { total: communityTotal.count || 0, fresh: (communityNew.count || 0) + (communityNotifications.count || 0) },
+    help: { total: helpTotal.count || 0, fresh: helpNew.count || 0 }
+  };
+}
+
+function countLabel(title: string, total: number, fresh: number) {
+  return fresh > 0 ? title + " · " + total + " · новых " + fresh : title + " · " + total;
+}
+
+async function countedKeyboard(profileId: string) {
+  const c = await getSectionCounts(profileId);
+  return {
+    inline_keyboard: [
+      [{ text: "Открыть Конаково Рядом", web_app: { url: "https://ivankorytnik.github.io/Konakovo_is_nearby/app.html" } }],
+      [{ text: countLabel("Что происходит рядом", c.feed.total, c.feed.fresh), callback_data: "feed" }],
+      [{ text: "Нужна помощь", callback_data: "help" }],
+      [{ text: "Места и бизнес", callback_data: "business" }],
+      [{ text: "Добавить свой бизнес", callback_data: "business_register" }],
+      [{ text: "Мой бизнес", callback_data: "my_business" }],
+      [{ text: countLabel("Общение жителей", c.community.total, c.community.fresh), callback_data: "community" }],
+      [{ text: countLabel("Помощь рядом", c.help.total, c.help.fresh), callback_data: "help_list" }],
+      [{ text: "Поделиться ботом", callback_data: "share" }],
+      [{ text: "Мои обращения", callback_data: "my_help" }],
+      [{ text: "Мой профиль", callback_data: "profile" }]
+    ]
+  };
+}
+
+async function markSectionRead(profileId: string, section: "feed" | "community" | "help") {
+  const now = new Date().toISOString();
+  await supabase.from("section_reads").upsert({
+    tenant_id: TENANT_ID,
+    profile_id: profileId,
+    section,
+    last_seen_at: now,
+    updated_at: now
+  }, { onConflict: "tenant_id,profile_id,section" });
+
+  if (section === "community") {
+    await supabase.from("notifications")
+      .update({ read_at: now })
+      .eq("tenant_id", TENANT_ID)
+      .eq("profile_id", profileId)
+      .is("read_at", null)
+      .in("type", ["community_comment","community_reply","community_dm"]);
+  }
+}
+
 function helpKeyboard() {
   return {
     inline_keyboard: [
@@ -45,10 +141,22 @@ function helpKeyboard() {
 }
 
 async function sendMessage(token: string, chatId: number | string, text: string, reply_markup?: unknown) {
+  let markup = reply_markup;
+  if (!markup) {
+    const { data: link } = await supabase
+      .from("identity_links")
+      .select("profile_id")
+      .eq("tenant_id", TENANT_ID)
+      .eq("channel", "telegram")
+      .eq("external_user_id", String(chatId))
+      .maybeSingle();
+    markup = link?.profile_id ? await countedKeyboard(link.profile_id) : baseKeyboard();
+  }
+
   const res = await fetch(`https://api.telegram.org/bot${token}/sendMessage`, {
     method: "POST",
     headers: { "content-type": "application/json" },
-    body: JSON.stringify({ chat_id: chatId, text, reply_markup: reply_markup ?? mainKeyboard() })
+    body: JSON.stringify({ chat_id: chatId, text, reply_markup: markup })
   });
   if (!res.ok) throw new Error(await res.text());
 }
@@ -604,7 +712,7 @@ Deno.serve(async (req) => {
       token,
       chatId,
       "Конаково Рядом\n\nГородской помощник: события, помощь, места, объявления и полезная информация рядом.",
-      mainKeyboard()
+      await countedKeyboard(profileId)
     );
   } else if (text?.startsWith("/start cpost_")) {
     await clearState(profileId);
@@ -612,6 +720,7 @@ Deno.serve(async (req) => {
   } else if (action === "feed" || text === "/nearby") {
     await clearState(profileId);
     await showFeed(token, chatId);
+    await markSectionRead(profileId, "feed");
   } else if (action === "business" || text === "/places") {
     await clearState(profileId);
     await showBusinesses(token, chatId);
@@ -624,6 +733,7 @@ Deno.serve(async (req) => {
   } else if (action === "community" || text === "/community") {
     await clearState(profileId);
     await showCommunity(token, chatId);
+    await markSectionRead(profileId, "community");
   } else if (action === "community_my") {
     await clearState(profileId);
     await showMyCommunity(token, chatId, profileId);
@@ -690,6 +800,7 @@ Deno.serve(async (req) => {
   } else if (action === "help_list") {
     await clearState(profileId);
     await showApprovedHelp(token, chatId);
+    await markSectionRead(profileId, "help");
   } else if (action === "share" || text === "/share") {
     await clearState(profileId);
     await shareBot(token, chatId, profileId);
@@ -751,7 +862,7 @@ Deno.serve(async (req) => {
       });
 
       await clearState(profileId);
-      await sendMessage(token, chatId, "Обсуждение отправлено на модерацию. После одобрения оно появится у жителей.", mainKeyboard());
+      await sendMessage(token, chatId, "Обсуждение отправлено на модерацию. После одобрения оно появится у жителей.", await countedKeyboard(profileId));
     } else if (state?.state === "community_comment") {
       const postId = state.data?.post_id;
       const { data: post } = await supabase.from("community_posts").select("author_profile_id,title")
@@ -841,7 +952,7 @@ Deno.serve(async (req) => {
       });
 
       await clearState(profileId);
-      await sendMessage(token, chatId, "Сообщение отправлено через бота. Ваш контакт не раскрыт.", mainKeyboard());
+      await sendMessage(token, chatId, "Сообщение отправлено через бота. Ваш контакт не раскрыт.", await countedKeyboard(profileId));
     } else if (state?.state === "community_dm_reply") {
       const threadId = state.data?.thread_id;
       const { data: th } = await supabase.from("community_threads").select("member_a_profile_id,member_b_profile_id,status")
@@ -869,7 +980,7 @@ Deno.serve(async (req) => {
       });
 
       await clearState(profileId);
-      await sendMessage(token, chatId, "Ответ отправлен.", mainKeyboard());
+      await sendMessage(token, chatId, "Ответ отправлен.", await countedKeyboard(profileId));
     } else if (state?.state === "business_name") {
       await setState(profileId, "business_category", { name: text.slice(0,300) });
       await sendMessage(token, chatId, "Укажите категорию бизнеса. Например: кафе, автосервис, магазин, услуги.", { inline_keyboard: [[{ text: "Отмена", callback_data: "home" }]] });
@@ -913,7 +1024,7 @@ Deno.serve(async (req) => {
       });
 
       await clearState(profileId);
-      await sendMessage(token, chatId, "Заявка на регистрацию бизнеса отправлена на проверку. После модерации я сообщу результат.", mainKeyboard());
+      await sendMessage(token, chatId, "Заявка на регистрацию бизнеса отправлена на проверку. После модерации я сообщу результат.", await countedKeyboard(profileId));
     } else if (state?.state === "help_description") {
       const category = state.data?.category || "other";
       await setState(profileId, "help_location", { category, description: text });
@@ -958,10 +1069,10 @@ Deno.serve(async (req) => {
         token,
         chatId,
         "Готово. Обращение принято и отправлено на модерацию. После проверки оно сможет появиться в разделе помощи.",
-        mainKeyboard()
+        await countedKeyboard(profileId)
       );
     } else {
-      await sendMessage(token, chatId, "Выберите нужный раздел в меню.", mainKeyboard());
+      await sendMessage(token, chatId, "Выберите нужный раздел в меню.", await countedKeyboard(profileId));
     }
   }
 
