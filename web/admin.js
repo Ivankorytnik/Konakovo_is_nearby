@@ -111,7 +111,19 @@ async function saveBusiness(){
 
 async function loadUsers(){
   const d=await api('users');
-  userRows.innerHTML=d.map(x=>'<tr><td>'+esc(x.display_name||'')+'</td><td>'+esc(x.role)+'</td><td>'+esc((x.identity_links||[]).map(i=>i.username?'@'+i.username:i.channel).join(', '))+'</td><td>'+esc(x.status)+'</td><td>'+new Date(x.created_at).toLocaleString('ru-RU')+'</td></tr>').join('');
+  nUsers.textContent=d.length;
+  userRows.innerHTML=d.map(x=>{
+    const roleOptions=['guest','registered','verified','business','admin'].map(r=>'<option value="'+r+'"'+(x.role===r?' selected':'')+'>'+r+'</option>').join('');
+    const statusOptions=['active','blocked'].map(s=>'<option value="'+s+'"'+(x.status===s?' selected':'')+'>'+s+'</option>').join('');
+    return '<tr><td>'+esc(x.display_name||'')+'</td><td><select id="ur-'+x.id+'">'+roleOptions+'</select></td><td>'+esc((x.identity_links||[]).map(i=>i.username?'@'+i.username:i.channel).join(', '))+'</td><td><select id="us-'+x.id+'">'+statusOptions+'</select><br><br><button class="small" onclick="saveUser(\''+x.id+'\')">Сохранить</button></td><td>'+new Date(x.created_at).toLocaleString('ru-RU')+'</td></tr>';
+  }).join('');
+}
+
+async function saveUser(id){
+  try{
+    await edge(K.userApi,{method:'POST',body:JSON.stringify({id,role:document.getElementById('ur-'+id).value,status:document.getElementById('us-'+id).value})});
+    await Promise.all([loadUsers(),loadAudit(),loadStats()]);
+  }catch(e){alert(e.message)}
 }
 
 async function loadAudit(){
