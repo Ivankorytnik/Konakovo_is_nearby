@@ -9,7 +9,7 @@ Deno.serve(async req=>{
  const section=new URL(req.url).searchParams.get("section")||"health";
  if(section==="health")return json({ok:true,tenant:"konakovo",version:"3.5"});
  if(section==="feed"){
-   const {data,error}=await db.from("content_items").select("id,type,title,body,published_at").eq("tenant_id",TENANT_ID).eq("status","published").order("published_at",{ascending:false}).limit(30);
+   const {data,error}=await db.from("content_items").select("id,type,title,body,published_at,source_name,source_article_url,source_published_at,auto_collected").eq("tenant_id",TENANT_ID).eq("status","published").order("published_at",{ascending:false}).limit(30);
    return error?json({error:error.message},500):json(data);
  }
  if(section==="help"){
