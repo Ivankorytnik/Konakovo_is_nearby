@@ -1,0 +1,1 @@
+window.KONAKOVO={api:'https://lwzqfmrbwtwfeuuikqsw.supabase.co/functions/v1/admin-api',rest:'https://lwzqfmrbwtwfeuuikqsw.supabase.co/rest/v1/rpc/',publishable:'sb_publishable_9pf-lAIf7QECTqqE3CkgMQ_LCwSbsYU'};
