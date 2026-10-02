@@ -5,7 +5,7 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
 );
-const ADMIN_ACCESS_KEY = Deno.env.get("ADMIN_ACCESS_KEY")!;
+const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -13,14 +13,55 @@ function json(data: unknown, status = 200) {
     headers: {
       "content-type": "application/json; charset=utf-8",
       "access-control-allow-origin": "*",
-      "access-control-allow-headers": "content-type,x-admin-key"
+      "access-control-allow-headers": "content-type,x-admin-key",
+      "access-control-allow-methods": "GET,POST,OPTIONS"
     }
   });
 }
 
+async function sha256(value: string) {
+  const bytes = new TextEncoder().encode(value);
+  const digest = await crypto.subtle.digest("SHA-256", bytes);
+  return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, "0")).join("");
+}
+
+async function authorized(req: Request) {
+  const key = req.headers.get("x-admin-key") || "";
+  if (!key) return false;
+  const { data, error } = await supabase
+    .from("app_config")
+    .select("value")
+    .eq("key", "admin_key_sha256")
+    .maybeSingle();
+  if (error || !data?.value?.value) return false;
+  return (await sha256(key)) === data.value.value;
+}
+
+async function getSecret(name: string) {
+  const { data, error } = await supabase.rpc("get_platform_secret", { p_name: name });
+  if (error) throw error;
+  return data as string | null;
+}
+
+async function setSecret(name: string, value: string) {
+  const { error } = await supabase.rpc("set_platform_secret", { p_name: name, p_secret: value });
+  if (error) throw error;
+}
+
+async function telegramCall(token: string, method: string, body: Record<string, unknown> = {}) {
+  const res = await fetch(`https://api.telegram.org/bot${token}/${method}`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body)
+  });
+  const data = await res.json();
+  if (!res.ok || !data.ok) throw new Error(data.description || `Telegram ${method} failed`);
+  return data;
+}
+
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return json({ ok: true });
-  if (req.headers.get("x-admin-key") !== ADMIN_ACCESS_KEY) return json({ error: "unauthorized" }, 401);
+  if (!(await authorized(req))) return json({ error: "unauthorized" }, 401);
 
   const url = new URL(req.url);
   const path = url.pathname.split("/").filter(Boolean).pop();
@@ -49,37 +90,75 @@ Deno.serve(async (req) => {
   }
 
   if (req.method === "GET" && path === "content") {
-    const { data, error } = await supabase
-      .from("content_items")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(200);
+    const { data, error } = await supabase.from("content_items").select("*").order("created_at", { ascending: false }).limit(200);
     return error ? json({ error: error.message }, 500) : json(data);
   }
 
   if (req.method === "POST" && path === "content") {
     const body = await req.json();
-    const { data, error } = await supabase
-      .from("content_items")
-      .insert({
-        type: body.type ?? "news",
-        title: body.title,
-        body: body.body ?? null,
-        status: body.status ?? "draft",
-        published_at: body.status === "published" ? new Date().toISOString() : null
-      })
-      .select()
-      .single();
+    if (!body.title?.trim()) return json({ error: "title_required" }, 400);
+    const { data, error } = await supabase.from("content_items").insert({
+      type: body.type ?? "news",
+      title: body.title.trim(),
+      body: body.body ?? null,
+      status: body.status ?? "draft",
+      published_at: body.status === "published" ? new Date().toISOString() : null
+    }).select().single();
     return error ? json({ error: error.message }, 400) : json(data, 201);
   }
 
   if (req.method === "GET" && path === "help") {
-    const { data, error } = await supabase
-      .from("help_requests")
-      .select("*")
-      .order("created_at", { ascending: false })
-      .limit(200);
+    const { data, error } = await supabase.from("help_requests").select("*").order("created_at", { ascending: false }).limit(200);
     return error ? json({ error: error.message }, 500) : json(data);
+  }
+
+  if (req.method === "GET" && path === "telegram-status") {
+    try {
+      const token = await getSecret("telegram_bot_token");
+      if (!token) return json({ configured: false });
+      const me = await telegramCall(token, "getMe");
+      const webhook = await telegramCall(token, "getWebhookInfo");
+      return json({
+        configured: true,
+        bot: me.result,
+        webhook: webhook.result
+      });
+    } catch (e) {
+      return json({ configured: true, error: e instanceof Error ? e.message : String(e) }, 500);
+    }
+  }
+
+  if (req.method === "POST" && path === "telegram-connect") {
+    try {
+      const body = await req.json();
+      const token = String(body.token || "").trim();
+      if (!/^\d+:[A-Za-z0-9_-]{20,}$/.test(token)) return json({ error: "invalid_token_format" }, 400);
+
+      const me = await telegramCall(token, "getMe");
+      await setSecret("telegram_bot_token", token);
+      const webhookSecret = await getSecret("telegram_webhook_secret");
+      if (!webhookSecret) return json({ error: "webhook_secret_missing" }, 500);
+
+      const webhookUrl = `${SUPABASE_URL}/functions/v1/telegram-webhook`;
+      const wh = await telegramCall(token, "setWebhook", {
+        url: webhookUrl,
+        secret_token: webhookSecret,
+        allowed_updates: ["message", "callback_query"],
+        drop_pending_updates: false
+      });
+
+      await supabase.from("audit_log").insert({
+        actor: "admin",
+        action: "telegram_connected",
+        entity_type: "integration",
+        entity_id: String(me.result.id),
+        metadata: { username: me.result.username, webhook_url: webhookUrl }
+      });
+
+      return json({ ok: true, bot: me.result, webhook: wh.result });
+    } catch (e) {
+      return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+    }
   }
 
   return json({ error: "not_found" }, 404);
