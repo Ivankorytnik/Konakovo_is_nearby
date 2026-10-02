@@ -120,7 +120,7 @@ Deno.serve(async (req) => {
   if (req.method === "GET" && path === "users") {
     const { data, error } = await supabase
       .from("profiles")
-      .select("id,role,display_name,status,created_at,identity_links(channel,username,external_user_id)")
+      .select("id,role,display_name,status,beta_allowed,created_at,identity_links(channel,username,external_user_id)")
       .eq("tenant_id", TENANT_ID)
       .order("created_at", { ascending: false })
       .limit(200);
