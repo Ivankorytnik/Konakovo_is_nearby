@@ -25,18 +25,15 @@ body{margin:0;background:linear-gradient(180deg,#e9efe8 0%,#eef1ed 100%);color:v
 }
 .brand{font-size:26px;font-weight:700;letter-spacing:-.2px}
 .muted{color:var(--muted)}
-.tabs{display:flex;flex-direction:column;gap:8px;padding-bottom:4px}
+.tabs{display:flex;gap:8px;overflow:auto;padding-bottom:4px}
 .tabs button{
-  width:100%;
   white-space:nowrap;
   background:var(--surface-soft);
   color:var(--text);
   border:1px solid var(--border);
   border-radius:11px;
   padding:10px 12px;
-  box-shadow:none;
-  text-align:left;
-  justify-content:flex-start
+  box-shadow:none
 }
 .tabs button:nth-child(1).on,
 .tabs button:nth-child(2).on{background:var(--slate);color:#fff}
