@@ -344,6 +344,18 @@ Deno.serve(async (req) => {
   const chatId = update.message?.chat?.id ?? update.callback_query?.message?.chat?.id;
   if (!from || !chatId) return new Response("ok");
 
+  const { data: killSwitch } = await supabase
+    .from("app_config")
+    .select("value")
+    .eq("key", "kill_switch")
+    .maybeSingle();
+
+  if (killSwitch?.value?.enabled === true) {
+    await sendMessage(token, chatId, "Конаково Рядом временно недоступен. Попробуйте немного позже.");
+    await supabase.from("telegram_updates").update({ processed_at: new Date().toISOString() }).eq("tenant_id", TENANT_ID).eq("update_id", updateId);
+    return new Response("ok");
+  }
+
   const profileId = await getOrCreateProfile(from);
   const text = update.message?.text?.trim();
   await registerReferral(profileId, text);
@@ -357,6 +369,17 @@ Deno.serve(async (req) => {
 
   if (profileStatus?.status === "blocked") {
     await sendMessage(token, chatId, "Доступ к боту временно ограничен.");
+    await supabase.from("telegram_updates").update({ processed_at: new Date().toISOString() }).eq("tenant_id", TENANT_ID).eq("update_id", updateId);
+    return new Response("ok");
+  }
+
+  const { data: rateAllowed, error: rateError } = await supabase.rpc("consume_rate_limit", {
+    p_tenant: TENANT_ID,
+    p_profile: profileId
+  });
+  if (rateError) throw rateError;
+  if (!rateAllowed) {
+    await sendMessage(token, chatId, "Слишком много запросов за короткое время. Попробуйте через минуту.");
     await supabase.from("telegram_updates").update({ processed_at: new Date().toISOString() }).eq("tenant_id", TENANT_ID).eq("update_id", updateId);
     return new Response("ok");
   }
