@@ -21,7 +21,7 @@ async function loginNow(){
     sessionStorage.setItem('cc_key',key);
     login.classList.add('hide');app.classList.remove('hide');
     nUsers.textContent=d.users;nContent.textContent=d.content;nHelp.textContent=d.helpRequests;ov.textContent='Backend доступен.';
-    await Promise.all([loadTg(),loadContent(),loadHelp(),loadBusiness(),loadUsers(),loadAudit(),loadStats()]);
+    await Promise.all([loadTg(),loadContent(),loadHelp(),loadCommunity(),loadBusiness(),loadUsers(),loadAudit(),loadStats()]);
   }catch(e){loginErr.textContent='Неверный ключ администратора.'}
 }
 
@@ -83,6 +83,35 @@ async function moderateHelp(id){
   try{
     await edge(K.helpApi,{method:'POST',body:JSON.stringify({id,status:document.getElementById('hs-'+id).value,note:document.getElementById('hn-'+id).value})});
     await Promise.all([loadHelp(),loadAudit()]);
+  }catch(e){alert(e.message)}
+}
+
+
+async function loadCommunity(){
+  const d=await edge(K.communityApi);
+  const posts=d.posts||[],reports=d.reports||[];
+  communityRows.innerHTML=posts.map(x=>{
+    const statuses=['pending','published','rejected','archived'].map(s=>'<option value="'+s+'"'+(x.status===s?' selected':'')+'>'+s+'</option>').join('');
+    const author=x.profiles?.display_name||'';
+    return '<tr><td>'+new Date(x.created_at).toLocaleString('ru-RU')+'</td><td>'+esc(author)+'</td><td>'+esc(x.category||'')+'</td><td><b>'+esc(x.title)+'</b><br><span class="muted">'+esc(x.body||'').slice(0,220)+'</span><br><span class="muted">'+esc(x.location_text||'')+'</span></td><td><select id="cp-'+x.id+'">'+statuses+'</select><br><br><input id="cn-'+x.id+'" value="'+esc(x.moderation_note||'')+'" placeholder="Комментарий"><br><br><button class="small" onclick="moderateCommunity(\''+x.id+'\')">Сохранить</button></td></tr>';
+  }).join('');
+  reportRows.innerHTML=reports.map(x=>{
+    const statuses=['new','review','resolved','dismissed'].map(s=>'<option value="'+s+'"'+(x.status===s?' selected':'')+'>'+s+'</option>').join('');
+    return '<tr><td>'+new Date(x.created_at).toLocaleString('ru-RU')+'</td><td>'+esc((x.entity_type||'')+' '+(x.entity_id||''))+'</td><td>'+esc(x.reason||'')+'</td><td>'+esc(x.details||'')+'</td><td><select id="rp-'+x.id+'">'+statuses+'</select><br><br><button class="small" onclick="resolveReport(\''+x.id+'\')">Сохранить</button></td></tr>';
+  }).join('');
+}
+
+async function moderateCommunity(id){
+  try{
+    await edge(K.communityApi,{method:'POST',body:JSON.stringify({action:'moderate_post',id,status:document.getElementById('cp-'+id).value,note:document.getElementById('cn-'+id).value})});
+    await Promise.all([loadCommunity(),loadAudit()]);
+  }catch(e){alert(e.message)}
+}
+
+async function resolveReport(id){
+  try{
+    await edge(K.communityApi,{method:'POST',body:JSON.stringify({action:'resolve_report',id,status:document.getElementById('rp-'+id).value})});
+    await Promise.all([loadCommunity(),loadAudit()]);
   }catch(e){alert(e.message)}
 }
 
