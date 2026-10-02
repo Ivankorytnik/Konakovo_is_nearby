@@ -6,6 +6,7 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
 );
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
+const TENANT_ID = "11111111-1111-4111-8111-111111111111";
 
 function json(data: unknown, status = 200) {
   return new Response(JSON.stringify(data), {
@@ -104,9 +105,9 @@ Deno.serve(async (req) => {
 
   if (req.method === "GET" && path === "dashboard") {
     const [profiles, content, help] = await Promise.all([
-      supabase.from("profiles").select("*", { count: "exact", head: true }),
-      supabase.from("content_items").select("*", { count: "exact", head: true }),
-      supabase.from("help_requests").select("*", { count: "exact", head: true })
+      supabase.from("profiles").select("*", { count: "exact", head: true }).eq("tenant_id", TENANT_ID),
+      supabase.from("content_items").select("*", { count: "exact", head: true }).eq("tenant_id", TENANT_ID),
+      supabase.from("help_requests").select("*", { count: "exact", head: true }).eq("tenant_id", TENANT_ID)
     ]);
     return json({
       users: profiles.count ?? 0,
@@ -120,6 +121,7 @@ Deno.serve(async (req) => {
     const { data, error } = await supabase
       .from("profiles")
       .select("id,role,display_name,status,created_at,identity_links(channel,username,external_user_id)")
+      .eq("tenant_id", TENANT_ID)
       .order("created_at", { ascending: false })
       .limit(200);
     return error ? json({ error: error.message }, 500) : json(data);
@@ -129,6 +131,7 @@ Deno.serve(async (req) => {
     const { data, error } = await supabase
       .from("content_items")
       .select("*")
+      .eq("tenant_id", TENANT_ID)
       .order("created_at", { ascending: false })
       .limit(200);
     return error ? json({ error: error.message }, 500) : json(data);
@@ -141,6 +144,7 @@ Deno.serve(async (req) => {
     const { data, error } = await supabase
       .from("content_items")
       .insert({
+        tenant_id: TENANT_ID,
         type: body.type ?? "news",
         title: body.title.trim(),
         body: body.body ?? null,
@@ -157,6 +161,7 @@ Deno.serve(async (req) => {
     const { data, error } = await supabase
       .from("help_requests")
       .select("*")
+      .eq("tenant_id", TENANT_ID)
       .order("created_at", { ascending: false })
       .limit(200);
     return error ? json({ error: error.message }, 500) : json(data);
@@ -217,6 +222,7 @@ Deno.serve(async (req) => {
       const commands = await telegramCall(token, "getMyCommands");
 
       await supabase.from("audit_log").insert({
+        tenant_id: TENANT_ID,
         actor: "admin",
         action: "telegram_connected",
         entity_type: "integration",
