@@ -16,6 +16,7 @@ async function getSecret(name: string) {
 function mainKeyboard() {
   return {
     inline_keyboard: [
+      [{ text: "Открыть Конаково Рядом", web_app: { url: "https://ivankorytnik.github.io/Konakovo_is_nearby/app.html" } }],
       [{ text: "Что происходит рядом", callback_data: "feed" }],
       [{ text: "Нужна помощь", callback_data: "help" }],
       [{ text: "Места и бизнес", callback_data: "business" }],
@@ -63,6 +64,17 @@ async function ensureCommands(token: string) {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify({ commands, language_code: "ru" })
+  });
+  await fetch(`https://api.telegram.org/bot${token}/setChatMenuButton`, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      menu_button: {
+        type: "web_app",
+        text: "Конаково Рядом",
+        web_app: { url: "https://ivankorytnik.github.io/Konakovo_is_nearby/app.html" }
+      }
+    })
   });
 }
 
