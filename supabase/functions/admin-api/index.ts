@@ -22,7 +22,9 @@ function json(data: unknown, status = 200) {
 async function sha256(value: string) {
   const bytes = new TextEncoder().encode(value);
   const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return Array.from(new Uint8Array(digest)).map(b => b.toString(16).padStart(2, "0")).join("");
+  return Array.from(new Uint8Array(digest))
+    .map(b => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 async function authorized(req: Request) {
@@ -55,16 +57,50 @@ async function telegramCall(token: string, method: string, body: Record<string, 
     body: JSON.stringify(body)
   });
   const data = await res.json();
-  if (!res.ok || !data.ok) throw new Error(data.description || `Telegram ${method} failed`);
+  if (!res.ok || !data.ok) {
+    throw new Error(data.description || `Telegram ${method} failed`);
+  }
   return data;
+}
+
+async function configureBot(token: string) {
+  await telegramCall(token, "setMyName", {
+    name: "Конаково Рядом"
+  });
+
+  await telegramCall(token, "setMyDescription", {
+    description:
+      "Городской помощник Конаково: новости, события, помощь, места, объявления и полезная информация рядом."
+  });
+
+  await telegramCall(token, "setMyShortDescription", {
+    short_description:
+      "Конаково рядом: новости, события, помощь, места и полезная городская информация."
+  });
+
+  const commands = [
+    { command: "start", description: "Открыть главное меню" },
+    { command: "nearby", description: "Что происходит рядом" },
+    { command: "help", description: "Нужна помощь" },
+    { command: "places", description: "Места и бизнес" }
+  ];
+
+  await telegramCall(token, "setMyCommands", { commands });
+  await telegramCall(token, "setMyCommands", {
+    language_code: "ru",
+    commands
+  });
+
+  await telegramCall(token, "setChatMenuButton", {
+    menu_button: { type: "commands" }
+  });
 }
 
 Deno.serve(async (req) => {
   if (req.method === "OPTIONS") return json({ ok: true });
   if (!(await authorized(req))) return json({ error: "unauthorized" }, 401);
 
-  const url = new URL(req.url);
-  const path = url.pathname.split("/").filter(Boolean).pop();
+  const path = new URL(req.url).pathname.split("/").filter(Boolean).pop();
 
   if (req.method === "GET" && path === "dashboard") {
     const [profiles, content, help] = await Promise.all([
@@ -90,25 +126,39 @@ Deno.serve(async (req) => {
   }
 
   if (req.method === "GET" && path === "content") {
-    const { data, error } = await supabase.from("content_items").select("*").order("created_at", { ascending: false }).limit(200);
+    const { data, error } = await supabase
+      .from("content_items")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(200);
     return error ? json({ error: error.message }, 500) : json(data);
   }
 
   if (req.method === "POST" && path === "content") {
     const body = await req.json();
     if (!body.title?.trim()) return json({ error: "title_required" }, 400);
-    const { data, error } = await supabase.from("content_items").insert({
-      type: body.type ?? "news",
-      title: body.title.trim(),
-      body: body.body ?? null,
-      status: body.status ?? "draft",
-      published_at: body.status === "published" ? new Date().toISOString() : null
-    }).select().single();
+
+    const { data, error } = await supabase
+      .from("content_items")
+      .insert({
+        type: body.type ?? "news",
+        title: body.title.trim(),
+        body: body.body ?? null,
+        status: body.status ?? "draft",
+        published_at: body.status === "published" ? new Date().toISOString() : null
+      })
+      .select()
+      .single();
+
     return error ? json({ error: error.message }, 400) : json(data, 201);
   }
 
   if (req.method === "GET" && path === "help") {
-    const { data, error } = await supabase.from("help_requests").select("*").order("created_at", { ascending: false }).limit(200);
+    const { data, error } = await supabase
+      .from("help_requests")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .limit(200);
     return error ? json({ error: error.message }, 500) : json(data);
   }
 
@@ -116,15 +166,24 @@ Deno.serve(async (req) => {
     try {
       const token = await getSecret("telegram_bot_token");
       if (!token) return json({ configured: false });
-      const me = await telegramCall(token, "getMe");
-      const webhook = await telegramCall(token, "getWebhookInfo");
+
+      const [me, webhook, commands] = await Promise.all([
+        telegramCall(token, "getMe"),
+        telegramCall(token, "getWebhookInfo"),
+        telegramCall(token, "getMyCommands")
+      ]);
+
       return json({
         configured: true,
         bot: me.result,
-        webhook: webhook.result
+        webhook: webhook.result,
+        commands: commands.result
       });
     } catch (e) {
-      return json({ configured: true, error: e instanceof Error ? e.message : String(e) }, 500);
+      return json({
+        configured: true,
+        error: e instanceof Error ? e.message : String(e)
+      }, 500);
     }
   }
 
@@ -132,32 +191,53 @@ Deno.serve(async (req) => {
     try {
       const body = await req.json();
       const token = String(body.token || "").trim();
-      if (!/^\d+:[A-Za-z0-9_-]{20,}$/.test(token)) return json({ error: "invalid_token_format" }, 400);
+
+      if (!/^\d+:[A-Za-z0-9_-]{20,}$/.test(token)) {
+        return json({ error: "invalid_token_format" }, 400);
+      }
 
       const me = await telegramCall(token, "getMe");
       await setSecret("telegram_bot_token", token);
+
       const webhookSecret = await getSecret("telegram_webhook_secret");
       if (!webhookSecret) return json({ error: "webhook_secret_missing" }, 500);
 
       const webhookUrl = `${SUPABASE_URL}/functions/v1/telegram-webhook`;
-      const wh = await telegramCall(token, "setWebhook", {
+
+      await telegramCall(token, "setWebhook", {
         url: webhookUrl,
         secret_token: webhookSecret,
         allowed_updates: ["message", "callback_query"],
         drop_pending_updates: false
       });
 
+      await configureBot(token);
+
+      const webhook = await telegramCall(token, "getWebhookInfo");
+      const commands = await telegramCall(token, "getMyCommands");
+
       await supabase.from("audit_log").insert({
         actor: "admin",
         action: "telegram_connected",
         entity_type: "integration",
         entity_id: String(me.result.id),
-        metadata: { username: me.result.username, webhook_url: webhookUrl }
+        metadata: {
+          username: me.result.username,
+          webhook_url: webhookUrl,
+          commands: commands.result
+        }
       });
 
-      return json({ ok: true, bot: me.result, webhook: wh.result });
+      return json({
+        ok: true,
+        bot: me.result,
+        webhook: webhook.result,
+        commands: commands.result
+      });
     } catch (e) {
-      return json({ error: e instanceof Error ? e.message : String(e) }, 400);
+      return json({
+        error: e instanceof Error ? e.message : String(e)
+      }, 400);
     }
   }
 
