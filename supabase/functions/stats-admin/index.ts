@@ -10,12 +10,15 @@ async function auth(req:Request){const k=req.headers.get("x-admin-key")||"";if(!
 Deno.serve(async req=>{
  if(req.method==="OPTIONS")return new Response(null,{status:204,headers:H});
  if(!(await auth(req)))return json({error:"unauthorized"},401);
- const [r,a,p,h,b]=await Promise.all([
+ const [r,a,p,h,b,cp,cpp,cr]=await Promise.all([
   db.from("referrals").select("*",{count:"exact",head:true}).eq("tenant_id",TENANT_ID),
   db.from("profiles").select("*",{count:"exact",head:true}).eq("tenant_id",TENANT_ID).eq("status","active"),
   db.from("content_items").select("*",{count:"exact",head:true}).eq("tenant_id",TENANT_ID).eq("status","published"),
   db.from("help_requests").select("*",{count:"exact",head:true}).eq("tenant_id",TENANT_ID).eq("status","new"),
-  db.from("businesses").select("*",{count:"exact",head:true}).eq("tenant_id",TENANT_ID).eq("status","active")
+  db.from("businesses").select("*",{count:"exact",head:true}).eq("tenant_id",TENANT_ID).eq("status","active"),
+  db.from("community_posts").select("*",{count:"exact",head:true}).eq("tenant_id",TENANT_ID).eq("status","published"),
+  db.from("community_posts").select("*",{count:"exact",head:true}).eq("tenant_id",TENANT_ID).eq("status","pending"),
+  db.from("community_reports").select("*",{count:"exact",head:true}).eq("tenant_id",TENANT_ID).eq("status","new")
  ]);
- return json({referrals:r.count??0,activeUsers:a.count??0,publishedContent:p.count??0,newHelp:h.count??0,activeBusinesses:b.count??0});
+ return json({referrals:r.count??0,activeUsers:a.count??0,publishedContent:p.count??0,newHelp:h.count??0,activeBusinesses:b.count??0,publishedCommunity:cp.count??0,pendingCommunity:cpp.count??0,newCommunityReports:cr.count??0});
 });
