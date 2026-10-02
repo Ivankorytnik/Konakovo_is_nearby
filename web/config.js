@@ -4,5 +4,6 @@ window.KONAKOVO={
   businessApi:'https://lwzqfmrbwtwfeuuikqsw.supabase.co/functions/v1/business-admin',
   auditApi:'https://lwzqfmrbwtwfeuuikqsw.supabase.co/functions/v1/audit-admin',
   contentApi:'https://lwzqfmrbwtwfeuuikqsw.supabase.co/functions/v1/content-admin',
-  statsApi:'https://lwzqfmrbwtwfeuuikqsw.supabase.co/functions/v1/stats-admin'
+  statsApi:'https://lwzqfmrbwtwfeuuikqsw.supabase.co/functions/v1/stats-admin',
+  userApi:'https://lwzqfmrbwtwfeuuikqsw.supabase.co/functions/v1/user-admin'
 };
