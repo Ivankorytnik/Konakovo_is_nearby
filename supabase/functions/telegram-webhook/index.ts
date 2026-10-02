@@ -5,6 +5,7 @@ const supabase = createClient(
   Deno.env.get("SUPABASE_URL")!,
   Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
 );
+const TENANT_ID = "11111111-1111-4111-8111-111111111111";
 
 async function getSecret(name: string) {
   const { data, error } = await supabase.rpc("get_platform_secret", { p_name: name });
@@ -78,6 +79,7 @@ async function getOrCreateProfile(from: any) {
   const { data: identity, error: identityError } = await supabase
     .from("identity_links")
     .select("profile_id")
+    .eq("tenant_id", TENANT_ID)
     .eq("channel", "telegram")
     .eq("external_user_id", externalId)
     .maybeSingle();
@@ -87,6 +89,7 @@ async function getOrCreateProfile(from: any) {
   const { data: profile, error: profileError } = await supabase
     .from("profiles")
     .insert({
+      tenant_id: TENANT_ID,
       role: "registered",
       display_name: [from.first_name, from.last_name].filter(Boolean).join(" ") || from.username || "Telegram user"
     })
@@ -96,6 +99,7 @@ async function getOrCreateProfile(from: any) {
 
   const { error: linkError } = await supabase.from("identity_links").insert({
     profile_id: profile.id,
+    tenant_id: TENANT_ID,
     channel: "telegram",
     external_user_id: externalId,
     username: from.username ?? null,
@@ -109,20 +113,21 @@ async function getOrCreateProfile(from: any) {
 
 async function setState(profileId: string, state: string, data: Record<string, unknown> = {}) {
   const { error } = await supabase.from("bot_states").upsert(
-    { profile_id: profileId, state, data, updated_at: new Date().toISOString() },
+    { profile_id: profileId, tenant_id: TENANT_ID, state, data, updated_at: new Date().toISOString() },
     { onConflict: "profile_id" }
   );
   if (error) throw error;
 }
 
 async function clearState(profileId: string) {
-  await supabase.from("bot_states").delete().eq("profile_id", profileId);
+  await supabase.from("bot_states").delete().eq("tenant_id", TENANT_ID).eq("profile_id", profileId);
 }
 
 async function showFeed(token: string, chatId: number | string) {
   const { data, error } = await supabase
     .from("content_items")
     .select("title,body,published_at,type")
+    .eq("tenant_id", TENANT_ID)
     .eq("status", "published")
     .order("published_at", { ascending: false })
     .limit(5);
@@ -145,6 +150,7 @@ async function showApprovedHelp(token: string, chatId: number | string) {
   const { data, error } = await supabase
     .from("help_requests")
     .select("title,description,location_text,created_at")
+    .eq("tenant_id", TENANT_ID)
     .eq("status", "approved")
     .order("created_at", { ascending: false })
     .limit(10);
@@ -167,6 +173,7 @@ async function showMyHelp(token: string, chatId: number | string, profileId: str
   const { data, error } = await supabase
     .from("help_requests")
     .select("title,description,location_text,status,created_at,moderation_note")
+    .eq("tenant_id", TENANT_ID)
     .eq("author_profile_id", profileId)
     .order("created_at", { ascending: false })
     .limit(10);
@@ -197,6 +204,7 @@ async function showProfile(token: string, chatId: number | string, profileId: st
   const { data: profile, error } = await supabase
     .from("profiles")
     .select("display_name,role,status,created_at,referral_code")
+    .eq("tenant_id", TENANT_ID)
     .eq("id", profileId)
     .single();
   if (error) throw error;
@@ -204,6 +212,7 @@ async function showProfile(token: string, chatId: number | string, profileId: st
   const { count } = await supabase
     .from("referrals")
     .select("*", { count: "exact", head: true })
+    .eq("tenant_id", TENANT_ID)
     .eq("inviter_profile_id", profileId);
 
   const roles: Record<string,string> = {
@@ -230,6 +239,7 @@ async function shareBot(token: string, chatId: number | string, profileId: strin
   const { data, error } = await supabase
     .from("profiles")
     .select("referral_code")
+    .eq("tenant_id", TENANT_ID)
     .eq("id", profileId)
     .single();
   if (error) throw error;
@@ -256,12 +266,14 @@ async function registerReferral(profileId: string, startText?: string) {
   const { data: inviter } = await supabase
     .from("profiles")
     .select("id")
+    .eq("tenant_id", TENANT_ID)
     .eq("referral_code", code)
     .maybeSingle();
 
   if (!inviter?.id || inviter.id === profileId) return;
 
   await supabase.from("referrals").insert({
+    tenant_id: TENANT_ID,
     inviter_profile_id: inviter.id,
     invitee_profile_id: profileId,
     channel: "telegram"
@@ -272,6 +284,7 @@ async function showBusinesses(token: string, chatId: number | string) {
   const { data, error } = await supabase
     .from("businesses")
     .select("name,category,description,address,phone,website,verified")
+    .eq("tenant_id", TENANT_ID)
     .eq("status", "active")
     .order("verified", { ascending: false })
     .order("name", { ascending: true })
@@ -322,7 +335,7 @@ Deno.serve(async (req) => {
 
   const { error: insertError } = await supabase
     .from("telegram_updates")
-    .insert({ update_id: updateId, payload: update });
+    .insert({ tenant_id: TENANT_ID, update_id: updateId, payload: update });
 
   if (insertError?.code === "23505") return new Response("duplicate");
   if (insertError) return new Response(insertError.message, { status: 500 });
@@ -338,12 +351,13 @@ Deno.serve(async (req) => {
   const { data: profileStatus } = await supabase
     .from("profiles")
     .select("status")
+    .eq("tenant_id", TENANT_ID)
     .eq("id", profileId)
     .single();
 
   if (profileStatus?.status === "blocked") {
     await sendMessage(token, chatId, "Доступ к боту временно ограничен.");
-    await supabase.from("telegram_updates").update({ processed_at: new Date().toISOString() }).eq("update_id", updateId);
+    await supabase.from("telegram_updates").update({ processed_at: new Date().toISOString() }).eq("tenant_id", TENANT_ID).eq("update_id", updateId);
     return new Response("ok");
   }
   const action = update.callback_query?.data;
@@ -393,6 +407,7 @@ Deno.serve(async (req) => {
     const { data: state } = await supabase
       .from("bot_states")
       .select("state,data")
+      .eq("tenant_id", TENANT_ID)
       .eq("profile_id", profileId)
       .maybeSingle();
 
@@ -413,6 +428,7 @@ Deno.serve(async (req) => {
       const { data: requestRow, error } = await supabase
         .from("help_requests")
         .insert({
+          tenant_id: TENANT_ID,
           author_profile_id: profileId,
           category,
           title,
@@ -427,6 +443,7 @@ Deno.serve(async (req) => {
       await clearState(profileId);
 
       await supabase.from("audit_log").insert({
+        tenant_id: TENANT_ID,
         actor: "telegram",
         action: "help_request_created",
         entity_type: "help_request",
@@ -448,7 +465,7 @@ Deno.serve(async (req) => {
   await supabase
     .from("telegram_updates")
     .update({ processed_at: new Date().toISOString() })
-    .eq("update_id", updateId);
+    .eq("tenant_id", TENANT_ID).eq("update_id", updateId);
 
   return new Response("ok");
 });
